@@ -3,10 +3,10 @@ import sys
 import os
 # Add root folder to path so Vercel can resolve absolute imports starting with 'src.'
 sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
-# src/api/main.py
+
+from contextlib import asynccontextmanager
 from fastapi import FastAPI, HTTPException, BackgroundTasks, status, Request, UploadFile, File, Form
 from fastapi.staticfiles import StaticFiles
-import os
 import shutil
 import tempfile
 import sqlite3
@@ -28,9 +28,21 @@ from src.config import get_database_paths, reset_pipeline_configs
 
 logger = get_pipeline_logger("control_plane")
 
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Initialize database tables on startup (critical for Vercel cold starts)."""
+    try:
+        from database.init_db import initialize_database
+        initialize_database()
+        logger.info("Database initialized successfully on startup")
+    except Exception as e:
+        logger.error("Database initialization failed on startup", error=str(e))
+    yield
+
 app = FastAPI(
     title="Enterprise Data Reliability Control Plane Gateway",
-    version="1.0.0"
+    version="1.0.0",
+    lifespan=lifespan
 )
 
 
