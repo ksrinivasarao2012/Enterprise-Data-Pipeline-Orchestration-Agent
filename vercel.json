@@ -1,13 +1,20 @@
 {
   "version": 2,
-  "rewrites": [
+  "builds": [
     {
-      "source": "/api/(.*)",
-      "destination": "src/api/main.py"
+      "src": "src/api/main.py",
+      "use": "@vercel/python",
+      "config": { "runtime": "python3.9" }
+    }
+  ],
+  "routes": [
+    {
+      "src": "/api/(.*)",
+      "dest": "src/api/main.py"
     },
     {
-      "source": "/(.*)",
-      "destination": "public/$1"
+      "src": "/(.*)",
+      "dest": "src/api/main.py"
     }
   ]
 }

@@ -1,4 +1,9 @@
 # src/api/main.py
+import sys
+import os
+# Add root folder to path so Vercel can resolve absolute imports starting with 'src.'
+sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+# src/api/main.py
 from fastapi import FastAPI, HTTPException, BackgroundTasks, status, Request, UploadFile, File, Form
 from fastapi.staticfiles import StaticFiles
 import os
