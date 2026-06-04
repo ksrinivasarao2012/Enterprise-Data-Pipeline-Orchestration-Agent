@@ -28,6 +28,14 @@ from src.config import get_database_paths, reset_pipeline_configs
 
 logger = get_pipeline_logger("control_plane")
 
+# Initialize database on module import (critical for Vercel where ASGI lifespan is bypassed)
+try:
+    from database.init_db import initialize_database
+    initialize_database()
+    logger.info("Database initialized successfully on module import")
+except Exception as e:
+    logger.error("Database initialization failed on module import", error=str(e))
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Initialize database tables on startup (critical for Vercel cold starts)."""
@@ -44,6 +52,7 @@ app = FastAPI(
     version="1.0.0",
     lifespan=lifespan
 )
+
 
 
 # --- Out-of-Band Intelligence Trigger Loop ---
