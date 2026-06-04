@@ -402,6 +402,37 @@ async def clear_history():
     except Exception as err:
         logger.exception("Error resetting history", error=str(err))
         raise HTTPException(status_code=500, detail=f"Error resetting database: {str(err)}")
+@app.get("/api/debug")
+async def debug_info():
+    import traceback
+    info = {
+        "cwd": os.getcwd(),
+        "exists_settings": os.path.exists(os.path.abspath(os.path.join(os.path.dirname(__file__), "../configs/settings.yaml"))),
+        "paths": None,
+        "init_error": None,
+        "db_exists": {}
+    }
+    try:
+        paths = get_database_paths()
+        info["paths"] = paths
+        for k, p in paths.items():
+            info["db_exists"][k] = {
+                "path": p,
+                "exists": os.path.exists(p),
+                "size": os.path.getsize(p) if os.path.exists(p) else 0
+            }
+    except Exception as e:
+        info["paths_error"] = traceback.format_exc()
+        
+    try:
+        from database.init_db import initialize_database
+        initialize_database()
+        info["initialized"] = True
+    except Exception as e:
+        info["init_error"] = traceback.format_exc()
+        
+    return info
+
 
 # Mount static files at the root route - must be registered last to avoid intercepting specific API paths
 # Commented out static mount to let Vercel serve public files
