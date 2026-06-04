@@ -237,7 +237,7 @@ async def execute_pipeline_a(
     base_url = str(request.base_url).rstrip("/")
     os.environ["CONTROL_PLANE_URL"] = base_url
     
-    from src.pipeline.csv_pipeline import PipelineA, DEFAULT_JSON_PATH
+    from src.pipeline.json_pipeline import PipelineA, DEFAULT_JSON_PATH
     pipeline = PipelineA()
     
     # Temporary workspace for custom file or loaded test case

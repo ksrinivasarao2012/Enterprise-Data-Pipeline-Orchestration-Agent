@@ -140,7 +140,7 @@ Incidents are dynamically classified and prioritized using a combination of dete
 │   ├── orchestration/
 │   │   └── graph.py              # LangGraph multi-agent orchestration code
 │   ├── pipeline/
-│   │   ├── csv_pipeline.py       # Pipeline A implementation
+│   │   ├── json_pipeline.py       # Pipeline A implementation
 │   │   ├── db_pipeline.py        # Pipeline B implementation
 │   │   └── etl_engine.py         # Prefect-based ETL pipeline (standalone mode)
 │   ├── services/

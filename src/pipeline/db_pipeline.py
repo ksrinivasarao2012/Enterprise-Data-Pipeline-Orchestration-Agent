@@ -20,13 +20,14 @@ class PipelineB:
     def __init__(self):
         self.pipeline_id = "PIPELINE_B"
 
-    def execute(self, simulate_failure_type: Optional[str] = None, sql_override: Optional[str] = None, op_db_path: Optional[str] = None, original_filename: Optional[str] = None) -> Optional[int]:
+    def execute(self, simulate_failure_type: Optional[str] = None, sql_override: Optional[str] = None, op_db_path: Optional[str] = None, original_filename: Optional[str] = None, run_id: Optional[str] = None) -> Optional[int]:
         """
         Runs the database ETL warehouse synchronization engine. 
         Extracts operational tables, aggregates data, and writes results to analytics database.
         """
         run_db_path = op_db_path if op_db_path else OPERATIONAL_DB_PATH
-        run_id = f"run_b_{uuid.uuid4().hex[:6]}"
+        if not run_id:
+            run_id = f"run_b_{uuid.uuid4().hex[:6]}"
         logger.info("Starting workload", pipeline_id=self.pipeline_id, run_id=run_id)
         
         TelemetryIncidentCreator.register_start(run_id, self.pipeline_id)

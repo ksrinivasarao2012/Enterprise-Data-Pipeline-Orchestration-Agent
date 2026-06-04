@@ -64,9 +64,40 @@
             box-shadow: 0 0 15px rgba(99, 102, 241, 0.15);
             border-color: rgba(99, 102, 241, 0.3);
         }
+        
+        /* Toast animations */
+        @keyframes toastSlideIn {
+            from {
+                transform: translateX(120%);
+                opacity: 0;
+            }
+            to {
+                transform: translateX(0);
+                opacity: 1;
+            }
+        }
+        @keyframes toastFadeOut {
+            from {
+                transform: scale(1);
+                opacity: 1;
+            }
+            to {
+                transform: scale(0.9);
+                opacity: 0;
+            }
+        }
+        .animate-toast-enter {
+            animation: toastSlideIn 0.3s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+        }
+        .animate-toast-exit {
+            animation: toastFadeOut 0.25s ease-out forwards;
+        }
     </style>
 </head>
 <body class="bg-slate-950 text-slate-100 font-sans min-h-screen antialiased">
+
+    <!-- Toast Notification Container -->
+    <div id="toast-container" class="fixed top-6 right-6 z-[9999] flex flex-col gap-3 w-full max-w-sm px-4 sm:px-0 pointer-events-none"></div>
 
     <!-- Top Navigation Bar -->
     <header class="sticky top-0 z-50 w-full glass-card border-b border-slate-800 px-6 py-4 flex flex-col sm:flex-row justify-between items-center gap-4">
@@ -286,6 +317,6 @@
     </footer>
 
     <!-- App Logic JS -->
-    <script src="app.js"></script>
+    <script src="app.js?v=1.0.1"></script>
 </body>
 </html>

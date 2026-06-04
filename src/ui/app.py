@@ -5,7 +5,7 @@ import tempfile
 import sqlite3
 from src.config import get_database_paths
 from src.incidents.incident_repository import IncidentRepository
-from src.pipeline.csv_pipeline import PipelineA
+from src.pipeline.json_pipeline import PipelineA
 
 # Dashboard Configuration
 st.set_page_config(page_title="Enterprise Data Pipeline Orchestration Agent", layout="wide")
@@ -62,7 +62,7 @@ with st.expander("Pipeline Ingestion Sandbox (Upload JSON to test Pipeline A)", 
         st.success("File uploaded successfully!")
         
         if st.button("Execute Ingestion Pipeline A"):
-            from src.pipeline.csv_pipeline import DEFAULT_JSON_PATH
+            from src.pipeline.json_pipeline import PipelineA, DEFAULT_JSON_PATH
             import json as json_mod
             try:
                 # Bypassing strict UI validation to allow the telemetry gateway and LangGraph to auto-heal broken files

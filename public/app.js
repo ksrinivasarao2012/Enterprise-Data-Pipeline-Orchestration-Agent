@@ -4,6 +4,94 @@ const API_BASE = '/api';
 // State parameters
 let selectedIncidentId = null;
 
+// Reusable Toast Notification System
+function showToast(message, type = 'info') {
+    const container = document.getElementById('toast-container');
+    if (!container) return;
+    
+    // Create toast element
+    const toast = document.createElement('div');
+    toast.className = `glass-card pointer-events-auto flex items-start gap-3 p-4 rounded-xl shadow-2xl border border-slate-800/80 border-l-4 animate-toast-enter transition-all duration-300`;
+    
+    // Set color schemes & icons based on type
+    let borderLeftColor = 'border-l-indigo-500';
+    let iconColor = 'text-indigo-400';
+    let iconSvg = `
+        <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+        </svg>
+    `;
+    
+    if (type === 'success') {
+        borderLeftColor = 'border-l-emerald-500';
+        iconColor = 'text-emerald-400';
+        iconSvg = `
+            <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+        `;
+    } else if (type === 'warning') {
+        borderLeftColor = 'border-l-amber-500';
+        iconColor = 'text-amber-400';
+        iconSvg = `
+            <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+            </svg>
+        `;
+    } else if (type === 'error') {
+        borderLeftColor = 'border-l-rose-500';
+        iconColor = 'text-rose-400';
+        iconSvg = `
+            <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2m7-2a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+        `;
+    }
+    
+    toast.classList.add(borderLeftColor);
+    
+    toast.innerHTML = `
+        <div class="${iconColor} mt-0.5 flex-shrink-0">
+            ${iconSvg}
+        </div>
+        <div class="flex-1 text-xs font-semibold text-slate-200 leading-normal">${message}</div>
+        <button class="text-slate-400 hover:text-slate-200 focus:outline-none flex-shrink-0 transition ml-1 cursor-pointer" onclick="dismissToast(this)">
+            <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+            </svg>
+        </button>
+    `;
+    
+    container.appendChild(toast);
+    
+    // Auto remove after 4.5 seconds
+    const timeoutId = setTimeout(() => {
+        dismissElement(toast);
+    }, 4500);
+    
+    toast.dataset.timeoutId = timeoutId;
+}
+
+function dismissToast(btn) {
+    const toast = btn.closest('.glass-card');
+    if (toast) {
+        if (toast.dataset.timeoutId) {
+            clearTimeout(parseInt(toast.dataset.timeoutId));
+        }
+        dismissElement(toast);
+    }
+}
+
+function dismissElement(el) {
+    if (el.parentNode) {
+        el.classList.remove('animate-toast-enter');
+        el.classList.add('animate-toast-exit');
+        el.addEventListener('animationend', () => {
+            el.remove();
+        });
+    }
+}
+
 // Helper to show filename upon selection
 function updateFilename(inputId, labelId) {
     const input = document.getElementById(inputId);
@@ -217,14 +305,14 @@ async function clearHistory() {
         if (!res.ok) throw new Error("Failed to clear history");
         const data = await res.json();
         
-        alert(data.message);
+        showToast(data.message, "success");
         selectedIncidentId = null;
         document.getElementById('audit-logs-container').innerHTML = `<div class="text-center py-12 text-slate-500 text-xs">No incident selected. Click "Audit" on any incident above.</div>`;
         document.getElementById('audit-incident-id').textContent = `Select an incident to view audit`;
         
         refreshData();
     } catch (err) {
-        alert("Failed to reset history: " + err.message);
+        showToast("Failed to reset history: " + err.message, "error");
     }
 }
 
@@ -244,9 +332,7 @@ async function runPipelineA() {
     } else if (preset) {
         formData.append("test_case", preset);
     } else {
-        resultBox.className = "text-xs rounded-lg p-3 bg-rose-500/10 text-rose-400 border border-rose-500/20 mt-2";
-        resultBox.classList.remove('hidden');
-        resultBox.textContent = "Warning: Please select a preloaded scenario or upload a custom JSON file first.";
+        showToast("Warning: Please select a preloaded scenario or upload a custom JSON file first.", "warning");
         return;
     }
     
@@ -270,6 +356,7 @@ async function runPipelineA() {
         if (res.ok && data.status === "success") {
             resultBox.classList.add('bg-emerald-500/10', 'text-emerald-400', 'border', 'border-emerald-500/20');
             resultBox.textContent = `Ingestion successful! Mapped and saved ${data.rows_ingested} records.`;
+            showToast("Pipeline A execution completed successfully!", "success");
             
             // Clear inputs
             fileInput.value = "";
@@ -277,10 +364,12 @@ async function runPipelineA() {
         } else {
             resultBox.classList.add('bg-rose-500/10', 'text-rose-400', 'border', 'border-rose-500/20');
             resultBox.textContent = data.detail || data.message || "Pipeline execution failed. Telemetry reported an incident.";
+            showToast("Pipeline A execution failed. Telemetry reported an incident.", "error");
         }
     } catch (err) {
         resultBox.className = "text-xs rounded-lg p-3 bg-rose-500/10 text-rose-400 border border-rose-500/20 mt-2";
         resultBox.textContent = "Error executing pipeline: " + err.message;
+        showToast("Error executing Pipeline A: " + err.message, "error");
     } finally {
         // Re-enable button
         btn.disabled = false;
@@ -308,9 +397,7 @@ async function runPipelineB() {
     } else if (preset) {
         formData.append("test_case", preset);
     } else {
-        resultBox.className = "text-xs rounded-lg p-3 bg-rose-500/10 text-rose-400 border border-rose-500/20 mt-2";
-        resultBox.classList.remove('hidden');
-        resultBox.textContent = "Warning: Please select a preloaded scenario or upload a custom DB file first.";
+        showToast("Warning: Please select a preloaded scenario or upload a custom DB file first.", "warning");
         return;
     }
     
@@ -334,6 +421,7 @@ async function runPipelineB() {
         if (res.ok && data.status === "success") {
             resultBox.classList.add('bg-emerald-500/10', 'text-emerald-400', 'border', 'border-emerald-500/20');
             resultBox.textContent = `Pipeline B ETL successful! Aggregated and stored ${data.rows_ingested} records.`;
+            showToast("Pipeline B execution completed successfully!", "success");
             
             // Clear inputs
             fileInput.value = "";
@@ -341,10 +429,12 @@ async function runPipelineB() {
         } else {
             resultBox.classList.add('bg-rose-500/10', 'text-rose-400', 'border', 'border-rose-500/20');
             resultBox.textContent = data.detail || data.message || "Pipeline B execution failed. Telemetry reported an incident.";
+            showToast("Pipeline B execution failed. Telemetry reported an incident.", "error");
         }
     } catch (err) {
         resultBox.className = "text-xs rounded-lg p-3 bg-rose-500/10 text-rose-400 border border-rose-500/20 mt-2";
         resultBox.textContent = "Error executing pipeline: " + err.message;
+        showToast("Error executing Pipeline B: " + err.message, "error");
     } finally {
         // Re-enable button
         btn.disabled = false;

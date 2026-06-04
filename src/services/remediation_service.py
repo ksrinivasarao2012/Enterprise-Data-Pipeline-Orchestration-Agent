@@ -122,7 +122,7 @@ class RemediationService:
         try:
             # Map platform names cleanly back to module files
             if pipeline_id == "PIPELINE_A":
-                from src.pipeline.csv_pipeline import PipelineA
+                from src.pipeline.json_pipeline import PipelineA
                 pipeline_worker = PipelineA()
             elif pipeline_id == "PIPELINE_B":
                 from src.pipeline.db_pipeline import PipelineB
@@ -134,11 +134,11 @@ class RemediationService:
             logger.info("Relaunching workload under clean state parameters", pipeline_id=pipeline_id)
             # If it's a reconfigure or retry, we run it
             if pipeline_id == "PIPELINE_A" and source_path:
-                result = pipeline_worker.execute(json_file_path=source_path, original_filename=original_filename)
+                result = pipeline_worker.execute(json_file_path=source_path, original_filename=original_filename, run_id=run_id)
             elif pipeline_id == "PIPELINE_B" and source_path:
-                result = pipeline_worker.execute(op_db_path=source_path, original_filename=original_filename)
+                result = pipeline_worker.execute(op_db_path=source_path, original_filename=original_filename, run_id=run_id)
             else:
-                result = pipeline_worker.execute(original_filename=original_filename)
+                result = pipeline_worker.execute(original_filename=original_filename, run_id=run_id)
             
             if result is not None:
                 logger.info("Pipeline healed successfully on auto-retry loop", pipeline_id=pipeline_id, run_id=run_id)
@@ -177,22 +177,23 @@ class RemediationService:
         from src.incidents.incident_repository import IncidentRepository
         incident = IncidentRepository.get_incident(incident_id)
         original_filename = incident.telemetry_metadata.get("original_filename") if incident and incident.telemetry_metadata else None
+        run_id = incident.run_id if incident else None
 
         try:
             if pipeline_id == "PIPELINE_A":
-                from src.pipeline.csv_pipeline import PipelineA
+                from src.pipeline.json_pipeline import PipelineA
                 pipeline_worker = PipelineA()
                 if source_path:
-                    result = pipeline_worker.execute(json_file_path=source_path, schema_mapping_override=params, throw_on_error=True, original_filename=original_filename)
+                    result = pipeline_worker.execute(json_file_path=source_path, schema_mapping_override=params, throw_on_error=True, original_filename=original_filename, run_id=run_id)
                 else:
-                    result = pipeline_worker.execute(schema_mapping_override=params, throw_on_error=True, original_filename=original_filename)
+                    result = pipeline_worker.execute(schema_mapping_override=params, throw_on_error=True, original_filename=original_filename, run_id=run_id)
             elif pipeline_id == "PIPELINE_B":
                 from src.pipeline.db_pipeline import PipelineB
                 pipeline_worker = PipelineB()
                 if source_path:
-                    result = pipeline_worker.execute(sql_override=params.get("sql_override"), op_db_path=source_path, original_filename=original_filename)
+                    result = pipeline_worker.execute(sql_override=params.get("sql_override"), op_db_path=source_path, original_filename=original_filename, run_id=run_id)
                 else:
-                    result = pipeline_worker.execute(sql_override=params.get("sql_override"), original_filename=original_filename)
+                    result = pipeline_worker.execute(sql_override=params.get("sql_override"), original_filename=original_filename, run_id=run_id)
             else:
                 raise ImportError("Unknown operational pipeline context target.")
                 
