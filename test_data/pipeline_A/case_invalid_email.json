@@ -1,0 +1,12 @@
+[
+  {"customer_id": "tc_0051", "name": "John Doe", "email": "john.doe_example.com", "country": "USA"},
+  {"customer_id": "tc_0052", "name": "Jane Smith", "email": "jane.smith@example.com", "country": "Canada"},
+  {"customer_id": "tc_0053", "name": "Max Mustermann", "email": "max.mustermann@example.com", "country": "Germany"},
+  {"customer_id": "tc_0054", "name": "Jean Dupont", "email": "jean.dupont@example.com", "country": "France"},
+  {"customer_id": "tc_0055", "name": "Yuki Tanaka", "email": "yuki.tanaka@example.com", "country": "Japan"},
+  {"customer_id": "tc_0056", "name": "Carlos Gomez", "email": "carlos.gomez@example.com", "country": "Mexico"},
+  {"customer_id": "tc_0057", "name": "Liam Neeson", "email": "liam.neeson@example.com", "country": "UK"},
+  {"customer_id": "tc_0058", "name": "Emma Watson", "email": "emma.watson@example.com", "country": "Australia"},
+  {"customer_id": "tc_0059", "name": "Ravi Kumar", "email": "ravi.kumar@example.com", "country": "India"},
+  {"customer_id": "tc_0060", "name": "Sofia Rossi", "email": "sofia.rossi@example.com", "country": "Italy"}
+]

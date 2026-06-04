@@ -1,0 +1,77 @@
+# --- Python Compilation ---
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+
+# --- Environments & Dependencies ---
+.env
+.env.local
+.env.*.local
+.venv/
+venv/
+env/
+ENV/
+env.bak/
+venv.bak/
+lib/
+lib64/
+bin/
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+parts/
+sdist/
+var/
+wheels/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# --- SQLite Databases & Temp Files ---
+# Ignore all SQLite database and journal files in the root and database directory
+*.db
+*.db-shm
+*.db-wal
+d
+d-shm
+d-wal
+# Explicitly keep test databases under test_data/
+!test_data/**/*.db
+
+# --- Logs ---
+*.log
+database/*.log
+escalated_incidents.log
+
+# --- Testing and Quality ---
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.tox/
+.coverage
+.cache
+htmlcov/
+nosetests.xml
+pylintrc
+.pylintrc
+
+# --- IDEs & Editors ---
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.project
+.pydevproject
+.settings/
+
+# --- OS-specific ---
+.DS_Store
+Thumbs.db

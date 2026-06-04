@@ -1,0 +1,12 @@
+[
+  {"customer_id": "tc_0021", "name": "John Doe", "user_email": "john.doe2@example.com", "country": "USA"},
+  {"customer_id": "tc_0022", "name": "Jane Smith", "user_email": "jane.smith2@example.com", "country": "Canada"},
+  {"customer_id": "tc_0023", "name": "Max Mustermann", "user_email": "max.mustermann2@example.com", "country": "Germany"},
+  {"customer_id": "tc_0024", "name": "Jean Dupont", "user_email": "jean.dupont2@example.com", "country": "France"},
+  {"customer_id": "tc_0025", "name": "Yuki Tanaka", "user_email": "yuki.tanaka2@example.com", "country": "Japan"},
+  {"customer_id": "tc_0026", "name": "Carlos Gomez", "user_email": "carlos.gomez2@example.com", "country": "Mexico"},
+  {"customer_id": "tc_0027", "name": "Liam Neeson", "user_email": "liam.neeson2@example.com", "country": "UK"},
+  {"customer_id": "tc_0028", "name": "Emma Watson", "user_email": "emma.watson2@example.com", "country": "Australia"},
+  {"customer_id": "tc_0029", "name": "Ravi Kumar", "user_email": "ravi.kumar2@example.com", "country": "India"},
+  {"customer_id": "tc_0030", "name": "Sofia Rossi", "user_email": "sofia.rossi2@example.com", "country": "Italy"}
+]

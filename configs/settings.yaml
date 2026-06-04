@@ -1,0 +1,28 @@
+# Configuration settings for Enterprise Healing Agent
+app:
+  name: "Enterprise Healing Agent"
+  env: "development"
+
+database:
+  url: "sqlite:///database/platform_state.db"
+
+llm:
+  model_name: "gemini-2.5-flash"
+  temperature: 0.0
+
+recovery:
+  default_param_suffix: "_col"
+  pipelines:
+    PIPELINE_A:
+      allowed_params: ["id_col", "name_col", "email_col", "country_col", "flatten_root_dict"]
+      aliases:
+        id_col: ["customer_id", "id", "cust_id", "uid", "customer_number"]
+        name_col: ["name", "full_name", "product_name", "label"]
+        email_col: ["email", "user_email", "email_address", "mail", "email_addr"]
+        country_col: ["country", "nation", "state", "region", "geo", "loc"]
+    PIPELINE_B:
+      allowed_params: ["name_col", "price_col", "stock_col", "sql_override"]
+      aliases:
+        name_col: ["title", "name", "product_name", "label"]
+        price_col: ["price", "cost", "price_usd", "value", "unit_price", "rate"]
+        stock_col: ["stock", "inventory", "quantity", "qty"]

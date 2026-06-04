@@ -1,0 +1,4 @@
+id,name,value
+1,Item A,100
+[corrupted non-csv data line]
+2,Item B,200
