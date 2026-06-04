@@ -1,5 +1,6 @@
 # src/api/main.py
 from fastapi import FastAPI, HTTPException, BackgroundTasks, status, Request, UploadFile, File, Form
+from fastapi.staticfiles import StaticFiles
 import os
 import shutil
 import tempfile
@@ -382,3 +383,7 @@ async def clear_history():
     except Exception as err:
         logger.exception("Error resetting history", error=str(err))
         raise HTTPException(status_code=500, detail=f"Error resetting database: {str(err)}")
+
+# Mount static files at the root route - must be registered last to avoid intercepting specific API paths
+if os.path.exists("public"):
+    app.mount("/", StaticFiles(directory="public", html=True), name="public")
