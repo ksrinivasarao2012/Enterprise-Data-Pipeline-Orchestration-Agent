@@ -113,6 +113,18 @@ When a pipeline throws an exception, the telemetry interceptor captures the erro
 | **P2** | Medium | Degraded performance, rate limits, non-blocking network anomalies |
 | **P3** | Low | Minor row-level anomalies (data quality quarantine alerts) |
 
+### 5. Hybrid Quarantine & Fault-Tolerance Model
+
+To prevent minor row-level anomalies (like invalid formatting or single duplicate entries) from blocking entire pipeline ingestion runs, the platform implements a hybrid fault-tolerance model. 
+
+*   **Granular Quarantine Isolation**: Individual row failures (e.g., email format errors or duplicate IDs in Pipeline A, or NULL device IDs in Pipeline B) are written to a dedicated `quarantined_records` table in the state database.
+*   **Partial Success Flow**: Healthy records are successfully loaded into the destination tables, while the run completes under a terminal status of `QUARANTINED` (with warning metrics displayed on the dashboard).
+*   **Warning Incident Logging**: Each quarantined run registers a low-priority (`P3`) warning incident categorized as `DATA_QUALITY`. Since valid data was successfully ingested, this incident auto-resolves immediately (`RESOLVED` using `force_override=True` to bypass state machine rules) for clean auditing.
+*   **Complete Escalation Guardrails**:
+    *   **All Rows Invalid**: If 100% of the ingestion payload is quarantined (resulting in `0` valid records loaded), the pipeline throws a `ValueError`. This registers the run as `FAILED` and raises an open incident.
+    *   **Agentic Actuation**: For failed aggregates, the LangGraph Recovery agent is invoked. If it deploys a `QUARANTINE` directive (isolating the bad records), the actuator updates the run status to `HEALED` post-isolation.
+    *   **Infinite Loop Prevention**: If a configuration dry-run during schema-drift recovery encounters the **same missing primary ID/key** error, the actuator rolls back the configurations and escalates the incident directly to a human on-call engineer via `_handle_escalation()`.
+
 ---
 
 ## 📂 Project Structure
