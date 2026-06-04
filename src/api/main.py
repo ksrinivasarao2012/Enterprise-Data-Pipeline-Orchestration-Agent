@@ -209,12 +209,28 @@ async def get_metrics():
     except Exception as e:
         logger.exception("Failed to query metrics from state DB", error=str(e))
         
+    from src.database import is_postgres, POSTGRES_URL
+    import traceback
+    
+    conn_error = None
+    if is_postgres():
+        try:
+            import pg8000
+            conn = pg8000.connect(dsn=POSTGRES_URL)
+            conn.close()
+        except Exception as ex:
+            conn_error = str(ex)
+
     return {
         "resolved": resolved_count,
         "investigating": investigating_count,
         "escalated": escalated_count,
-        "runs_without_incident": runs_without_incident
+        "runs_without_incident": runs_without_incident,
+        "database_type": "postgres" if is_postgres() else "sqlite",
+        "has_postgres_env": bool(POSTGRES_URL),
+        "postgres_connection_error": conn_error
     }
+
 
 @app.get("/api/incidents")
 async def get_incidents():
