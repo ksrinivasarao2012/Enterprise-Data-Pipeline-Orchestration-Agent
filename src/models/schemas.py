@@ -10,6 +10,7 @@ class PipelineStatus(str, Enum):
     SUCCESS = "SUCCESS"
     FAILED = "FAILED"
     HEALED = "HEALED"
+    QUARANTINED = "QUARANTINED"
 
 class IncidentStatus(str, Enum):
     OPEN = "OPEN"

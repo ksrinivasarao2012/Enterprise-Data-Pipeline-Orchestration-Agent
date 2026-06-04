@@ -43,7 +43,7 @@ class PipelineService:
         with cls._get_connection() as conn:
             cursor = conn.cursor()
             
-            if status in [PipelineStatus.SUCCESS, PipelineStatus.FAILED, PipelineStatus.HEALED]:
+            if status in [PipelineStatus.SUCCESS, PipelineStatus.FAILED, PipelineStatus.HEALED, PipelineStatus.QUARANTINED]:
                 now = datetime.now(timezone.utc).isoformat()
                 cursor.execute(
                     "UPDATE pipeline_runs SET status = ?, ended_at = ? WHERE run_id = ?",

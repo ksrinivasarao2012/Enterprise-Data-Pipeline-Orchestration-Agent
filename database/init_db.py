@@ -82,6 +82,19 @@ def initialize_database():
             )
         """)
         
+        # Isolated Quarantined Records
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS quarantined_records (
+                quarantine_id TEXT PRIMARY KEY,
+                pipeline_id TEXT NOT NULL,
+                run_id TEXT NOT NULL,
+                record_type TEXT NOT NULL,
+                raw_record TEXT NOT NULL,
+                validation_errors TEXT NOT NULL,
+                created_at TEXT NOT NULL
+            )
+        """)
+        
         # Performance Index Matrix
         if not is_postgres():
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_pipeline_runs_status ON pipeline_runs(status);")

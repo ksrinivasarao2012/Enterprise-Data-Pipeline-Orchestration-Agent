@@ -222,7 +222,7 @@
         </section>
         
         <!-- Metrics Panel Section -->
-        <section class="grid grid-cols-2 md:grid-cols-4 gap-4">
+        <section class="grid grid-cols-2 md:grid-cols-5 gap-4">
             
             <!-- Resolved Incidents -->
             <div class="glass-card rounded-xl p-5 flex flex-col gap-2">
@@ -246,6 +246,12 @@
             <div class="glass-card rounded-xl p-5 flex flex-col gap-2">
                 <span class="text-xs text-slate-400 font-semibold uppercase tracking-wider">Runs Without Incident</span>
                 <span class="text-3xl font-bold font-display text-slate-300" id="metric-runs">0</span>
+            </div>
+            
+            <!-- Quarantined Rows -->
+            <div class="glass-card rounded-xl p-5 flex flex-col gap-2 border border-indigo-500/10 hover:border-indigo-500/30 transition duration-150">
+                <span class="text-xs text-slate-400 font-semibold uppercase tracking-wider">Quarantined Rows</span>
+                <span class="text-3xl font-bold font-display text-indigo-400" id="metric-quarantined">0</span>
             </div>
             
         </section>
@@ -272,6 +278,43 @@
                     <tbody id="incidents-body" class="divide-y divide-slate-800/60 text-slate-300">
                         <tr>
                             <td colspan="9" class="p-8 text-center text-slate-500">No active incidents found in the platform control plane database.</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </section>
+        
+        <!-- Quarantined Records Log Section -->
+        <section class="glass-card rounded-2xl p-6 space-y-4">
+            <div class="flex justify-between items-center">
+                <div>
+                    <h2 class="text-lg font-bold font-display tracking-tight text-indigo-400 flex items-center gap-2">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 9.172V5L8 4z" />
+                        </svg>
+                        Quarantined Records Log
+                    </h2>
+                    <p class="text-xs text-slate-400">Individual record failures isolated dynamically to unblock clean data ingestion.</p>
+                </div>
+                <span class="text-xs bg-slate-800 text-slate-400 px-3 py-1 rounded-full border border-slate-700 font-mono" id="quarantine-count-badge">0 Rows Quarantined</span>
+            </div>
+            
+            <div class="overflow-x-auto rounded-lg border border-slate-800 bg-slate-900/30 max-h-[350px] overflow-y-auto">
+                <table class="w-full text-left border-collapse text-xs">
+                    <thead>
+                        <tr class="bg-slate-900/80 text-slate-300 border-b border-slate-800 font-semibold uppercase tracking-wider sticky top-0">
+                            <th class="p-4">Quarantine ID</th>
+                            <th class="p-4">Pipeline</th>
+                            <th class="p-4">Run ID</th>
+                            <th class="p-4">Type</th>
+                            <th class="p-4">Raw Content</th>
+                            <th class="p-4">Validation Errors</th>
+                            <th class="p-4">Isolated At</th>
+                        </tr>
+                    </thead>
+                    <tbody id="quarantine-body" class="divide-y divide-slate-800/60 text-slate-300 font-mono text-[11px]">
+                        <tr>
+                            <td colspan="7" class="p-8 text-center text-slate-500 font-sans">No quarantined records found. All ingestion queues are clean.</td>
                         </tr>
                     </tbody>
                 </table>

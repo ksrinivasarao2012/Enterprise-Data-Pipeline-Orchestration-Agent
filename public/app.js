@@ -114,6 +114,9 @@ async function fetchMetrics() {
         document.getElementById('metric-investigating').textContent = data.investigating;
         document.getElementById('metric-escalated').textContent = data.escalated;
         document.getElementById('metric-runs').textContent = data.runs_without_incident;
+        if (document.getElementById('metric-quarantined')) {
+            document.getElementById('metric-quarantined').textContent = data.quarantined || 0;
+        }
     } catch (err) {
         console.error(err);
     }
@@ -297,6 +300,59 @@ async function fetchEscalations() {
     }
 }
 
+// Fetch Quarantined Records list
+async function fetchQuarantine() {
+    try {
+        const res = await fetch(`${API_BASE}/quarantine`);
+        if (!res.ok) throw new Error("Failed to fetch quarantined records");
+        const list = await res.json();
+        
+        const tbody = document.getElementById('quarantine-body');
+        const badge = document.getElementById('quarantine-count-badge');
+        
+        if (badge) {
+            badge.textContent = `${list.length} Row${list.length === 1 ? '' : 's'} Quarantined`;
+        }
+        
+        if (!tbody) return;
+        
+        if (list.length === 0) {
+            tbody.innerHTML = `
+                <tr>
+                    <td colspan="7" class="p-8 text-center text-slate-500 font-sans">No quarantined records found. All ingestion queues are clean.</td>
+                </tr>
+            `;
+            return;
+        }
+        
+        tbody.innerHTML = list.map(item => {
+            let formattedTs = item.created_at;
+            try {
+                const date = new Date(item.created_at);
+                formattedTs = date.toLocaleTimeString() + ' ' + date.toLocaleDateString();
+            } catch(e){}
+            
+            const rawRecordStr = JSON.stringify(item.raw_record);
+            const rawRecordTrunc = rawRecordStr.length > 50 ? rawRecordStr.substring(0, 50) + "..." : rawRecordStr;
+            const errorsStr = item.validation_errors.join(", ");
+            
+            return `
+                <tr class="hover:bg-slate-900/40 transition duration-150 border-b border-slate-900">
+                    <td class="p-4 font-bold text-indigo-300 select-all">${item.quarantine_id}</td>
+                    <td class="p-4 font-sans font-semibold">${item.pipeline_id}</td>
+                    <td class="p-4 select-all text-slate-400">${item.run_id}</td>
+                    <td class="p-4 font-sans text-slate-450">${item.record_type}</td>
+                    <td class="p-4 text-slate-350 max-w-xs truncate" title='${rawRecordStr}'>${rawRecordTrunc}</td>
+                    <td class="p-4 text-rose-400 max-w-xs truncate font-sans" title="${errorsStr}">${errorsStr}</td>
+                    <td class="p-4 text-slate-500">${formattedTs}</td>
+                </tr>
+            `;
+        }).join('');
+    } catch (err) {
+        console.error(err);
+    }
+}
+
 // Clear Database History
 async function clearHistory() {
     if (!confirm("Are you sure you want to completely clear the control plane databases, incident history, and escalations list?")) return;
@@ -358,6 +414,10 @@ async function runPipelineA() {
             if (data.healed) {
                 resultBox.textContent = `Pipeline A execution auto-healed! Remedied issues and successfully ingested data.`;
                 showToast("Pipeline A execution auto-healed successfully!", "success");
+            } else if (data.quarantined) {
+                resultBox.className = "text-xs rounded-lg p-3 mt-2 bg-amber-500/10 text-amber-400 border border-amber-500/20";
+                resultBox.textContent = `Ingestion complete with warnings: Mapped and saved ${data.rows_ingested} records, quarantined ${data.quarantined_count} records.`;
+                showToast(`Pipeline A completed with warnings: isolated ${data.quarantined_count} rows.`, "warning");
             } else {
                 resultBox.textContent = `Ingestion successful! Mapped and saved ${data.rows_ingested} records.`;
                 showToast("Pipeline A execution completed successfully!", "success");
@@ -428,6 +488,10 @@ async function runPipelineB() {
             if (data.healed) {
                 resultBox.textContent = `Pipeline B execution auto-healed! Remedied issues and successfully ingested data.`;
                 showToast("Pipeline B execution auto-healed successfully!", "success");
+            } else if (data.quarantined) {
+                resultBox.className = "text-xs rounded-lg p-3 mt-2 bg-amber-500/10 text-amber-400 border border-amber-500/20";
+                resultBox.textContent = `ETL complete with warnings: Aggregated and stored ${data.rows_ingested} records, quarantined ${data.quarantined_count} records.`;
+                showToast(`Pipeline B completed with warnings: isolated ${data.quarantined_count} rows.`, "warning");
             } else {
                 resultBox.textContent = `Pipeline B ETL successful! Aggregated and stored ${data.rows_ingested} records.`;
                 showToast("Pipeline B execution completed successfully!", "success");
@@ -461,6 +525,7 @@ function refreshData() {
     fetchMetrics();
     fetchIncidents();
     fetchEscalations();
+    fetchQuarantine();
     if (selectedIncidentId) {
         fetchAuditLogs(selectedIncidentId);
     }

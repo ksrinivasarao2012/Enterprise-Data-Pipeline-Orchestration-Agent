@@ -121,28 +121,81 @@ class PipelineB:
                     else:
                         raise sqlite3.OperationalError(f"Database Query Parse Error: {str(sq_err)}.{schema_info} Query: {telemetry_query}")
 
+                valid_metrics_rows = []
+                quarantined_count = 0
+                
                 # Check for actual database referential integrity violations
                 for row in metrics_rows:
                     if row[0] is None:
-                        raise ValueError("Referential Integrity Violation: Device log maps to an unknown/unregistered device_id group (NULL device_id detected).")
+                        # Quarantine this row record
+                        from src.services.quarantine_service import QuarantineService
+                        raw_rec = {
+                            "device_id": None,
+                            "total_events": row[1],
+                            "error_rate": row[2],
+                            "avg_response_time": row[3]
+                        }
+                        QuarantineService.quarantine_record(
+                            pipeline_id=self.pipeline_id,
+                            run_id=run_id,
+                            record_type="device_telemetry_aggregate",
+                            raw_record=raw_rec,
+                            validation_errors=["Referential Integrity Violation: device_id is NULL"]
+                        )
+                        quarantined_count += 1
+                    else:
+                        valid_metrics_rows.append(row)
+                        
+            # If all rows failed, throw ValueError to register run as FAILED
+            if quarantined_count > 0 and not valid_metrics_rows:
+                raise ValueError("Referential Integrity Violation: All aggregated telemetry device_id values are NULL.")
 
             # 5. Load aggregate records into analytics.db staging target tables
             records_written = 0
-            with get_db_connection("analytics_db") as conn:
-                cursor = conn.cursor()
-                
-                for r in metrics_rows:
-                    cursor.execute("""
-                        INSERT OR REPLACE INTO system_performance_metrics 
-                        (device_id, total_events, error_rate, avg_response_time)
-                        VALUES (?, ?, ?, ?)
-                    """, r)
-                    records_written += 1
-                
-                conn.commit()
+            if valid_metrics_rows:
+                with get_db_connection("analytics_db") as conn:
+                    cursor = conn.cursor()
+                    
+                    for r in valid_metrics_rows:
+                        cursor.execute("""
+                            INSERT OR REPLACE INTO system_performance_metrics 
+                            (device_id, total_events, error_rate, avg_response_time)
+                            VALUES (?, ?, ?, ?)
+                        """, r)
+                        records_written += 1
+                    
+                    conn.commit()
 
-            logger.info("Process complete; loaded aggregated records into warehouse", pipeline_id=self.pipeline_id, records_written=records_written)
-            TelemetryIncidentCreator.register_status(run_id, self.pipeline_id, "SUCCESS")
+            logger.info("Process complete; loaded aggregated records into warehouse", pipeline_id=self.pipeline_id, records_written=records_written, quarantined=quarantined_count)
+            
+            # Update terminal status based on whether we quarantined rows
+            if quarantined_count > 0:
+                TelemetryIncidentCreator.register_status(run_id, self.pipeline_id, "QUARANTINED")
+                
+                # Generate a P3 low severity warning incident in database
+                from src.incidents.incident_manager import IncidentManager
+                from src.models.schemas import IncidentStatus
+                
+                incident = IncidentManager.initialize_incident(
+                    run_id=run_id,
+                    pipeline_id=self.pipeline_id,
+                    error_class="ReferentialIntegrityAnomaly",
+                    error_message=f"Referential Integrity Warning: isolated {quarantined_count} records to quarantine (NULL device_id).",
+                    stack_trace=f"NULL device_id: {quarantined_count} rows isolated.",
+                    telemetry_metadata={"quarantined_count": quarantined_count, "valid_count": len(valid_metrics_rows)}
+                )
+                # Auto-resolve the incident immediately
+                IncidentManager.transition_to(incident.incident_id, IncidentStatus.RESOLVED, force_override=True)
+                
+                from src.services.audit_service import AuditService
+                AuditService.log_event(
+                    incident.incident_id,
+                    "CONTROL_PLANE",
+                    f"ETL partial success: aggregated {records_written} devices, quarantined {quarantined_count} records."
+                )
+            else:
+                TelemetryIncidentCreator.register_status(run_id, self.pipeline_id, "SUCCESS")
+                
             return records_written
 
         except Exception as e:

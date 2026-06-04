@@ -140,7 +140,8 @@ class PipelineA:
             
             logger.info("Validating structural constraints & parsing values", pipeline_id=self.pipeline_id)
             records_written = 0
-            problematic_rows = []
+            valid_rows = []
+            quarantined_count = 0
             
             with get_db_connection("operational_db") as conn:
                 cur = conn.cursor()
@@ -148,92 +149,129 @@ class PipelineA:
                 
                 for idx, item in enumerate(raw_data):
                     row_errors = []
-                    try:
-                        p_id = item[schema_mapping["id_col"]]
-                        p_email = item[schema_mapping["email_col"]]
-                        p_name = item[schema_mapping["name_col"]]
-                        p_country = item[schema_mapping["country_col"]]
-                    except KeyError as ke:
-                        missing = ke.args[0]
-                        expected = [
-                            schema_mapping["id_col"],
-                            schema_mapping["name_col"],
-                            schema_mapping["email_col"],
-                            schema_mapping["country_col"],
-                        ]
-                        actual = list(item.keys())
-                        sig = generate_error_signature(self.pipeline_id, "KeyError", missing)
-                        raise KeyError(
-                            f"[ErrorSignature: {self.pipeline_id}|KeyError|{missing}|{sig}] Expected: {expected} | Found: {actual}"
-                        )
                     
-                    if simulate_failure_type == "DUPLICATE":
-                        cur.execute("SELECT 1 FROM customers WHERE customer_id = ?", (p_id,))
-                        if cur.fetchone():
-                            row_errors.append(f"Customer ID '{p_id}' already exists in database")
-                    
-                    if p_id in seen_ids_in_batch:
-                        row_errors.append(f"Duplicate Customer ID '{p_id}' within batch")
-                    else:
-                        seen_ids_in_batch.add(p_id)
-                    
-                    if not p_email or "@" not in p_email:
-                        row_errors.append(f"Invalid email formatting on value '{p_email}'")
-                    
-                    if row_errors:
-                        problematic_rows.append({"row_index": idx, "errors": row_errors})
-            
-            if problematic_rows:
-                num = len(problematic_rows)
-                details = "; ".join(
-                    [f"Row {r['row_index']} error(s): {', '.join(r['errors'])}" for r in problematic_rows[:3]]
-                )
-                if num > 3:
-                    details += f" ... and {num - 3} more"
-                is_duplicate = any(
-                    "duplicate" in err.lower() or "already exists" in err.lower()
-                    for r in problematic_rows
-                    for err in r["errors"]
-                )
-                if is_duplicate:
-                    raise ValueError(
-                        f"Duplicate customer ID detected. Total problematic rows: {num}. Details: {details}"
-                    )
-                else:
-                    raise ValueError(
-                        f"Data Quality Violation: Field formatting errors. Total problematic rows: {num}. Details: {details}"
-                    )
-            
-            with get_db_connection("operational_db") as conn:
-                cur = conn.cursor()
-                for item in raw_data:
+                    # Ensure keys are present in row item mapping (triggers KeyError for schema drift)
+                    for k in ["id_col", "name_col", "email_col", "country_col"]:
+                        expected_key = schema_mapping[k]
+                        if expected_key not in item:
+                            expected = [
+                                schema_mapping["id_col"],
+                                schema_mapping["name_col"],
+                                schema_mapping["email_col"],
+                                schema_mapping["country_col"],
+                            ]
+                            actual = list(item.keys())
+                            sig = generate_error_signature(self.pipeline_id, "KeyError", expected_key)
+                            raise KeyError(
+                                f"[ErrorSignature: {self.pipeline_id}|KeyError|{expected_key}|{sig}] Expected: {expected} | Found: {actual}"
+                            )
+                            
                     p_id = item[schema_mapping["id_col"]]
                     p_email = item[schema_mapping["email_col"]]
                     p_name = item[schema_mapping["name_col"]]
                     p_country = item[schema_mapping["country_col"]]
-                    insert_q = """
-                        INSERT OR REPLACE INTO customers (customer_id, name, email, country, signup_date, status, total_orders)
-                        VALUES (?, ?, ?, ?, ?, 'ACTIVE', 0)
-                    """
-                    cur.execute(
-                        insert_q,
-                        (
-                            p_id,
-                            p_name,
-                            p_email,
-                            p_country,
-                            datetime.now(timezone.utc).date().isoformat(),
-                        ),
-                    )
-                    records_written += 1
-                conn.commit()
+                    
+                    # 1. Null / Empty Primary ID Check
+                    if p_id is None or str(p_id).strip() == "":
+                        row_errors.append("Customer ID cannot be empty or null")
+                    else:
+                        # 2. Database Duplicate Check (if simulated)
+                        if simulate_failure_type == "DUPLICATE":
+                            cur.execute("SELECT 1 FROM customers WHERE customer_id = ?", (p_id,))
+                            if cur.fetchone():
+                                row_errors.append(f"Customer ID '{p_id}' already exists in database")
+                        
+                        # 3. Batch Duplicate Check
+                        if p_id in seen_ids_in_batch:
+                            row_errors.append(f"Duplicate Customer ID '{p_id}' within batch")
+                        else:
+                            seen_ids_in_batch.add(p_id)
+                    
+                    # 4. Email Formatting Check
+                    if not p_email or "@" not in p_email:
+                        row_errors.append(f"Invalid email formatting on value '{p_email}'")
+                    
+                    if row_errors:
+                        # Quarantine the row record
+                        from src.services.quarantine_service import QuarantineService
+                        QuarantineService.quarantine_record(
+                            pipeline_id=self.pipeline_id,
+                            run_id=run_id,
+                            record_type="customer",
+                            raw_record=item,
+                            validation_errors=row_errors
+                        )
+                        quarantined_count += 1
+                    else:
+                        valid_rows.append(item)
+            
+            # If all rows failed, throw ValueError to register run as FAILED
+            if quarantined_count > 0 and not valid_rows:
+                raise ValueError(
+                    f"Data Quality Violation: All {quarantined_count} customer rows failed validation and were quarantined."
+                )
+                
+            # Insert valid rows
+            if valid_rows:
+                with get_db_connection("operational_db") as conn:
+                    cur = conn.cursor()
+                    for item in valid_rows:
+                        p_id = item[schema_mapping["id_col"]]
+                        p_email = item[schema_mapping["email_col"]]
+                        p_name = item[schema_mapping["name_col"]]
+                        p_country = item[schema_mapping["country_col"]]
+                        insert_q = """
+                            INSERT OR REPLACE INTO customers (customer_id, name, email, country, signup_date, status, total_orders)
+                            VALUES (?, ?, ?, ?, ?, 'ACTIVE', 0)
+                        """
+                        cur.execute(
+                            insert_q,
+                            (
+                                p_id,
+                                p_name,
+                                p_email,
+                                p_country,
+                                datetime.now(timezone.utc).date().isoformat(),
+                            ),
+                        )
+                        records_written += 1
+                    conn.commit()
             
             logger.info(
                 "Process complete; ingested customer rows",
                 pipeline_id=self.pipeline_id,
                 records_written=records_written,
+                quarantined_records=quarantined_count,
             )
-            TelemetryIncidentCreator.register_status(run_id, self.pipeline_id, "SUCCESS")
+            
+            # Update terminal status based on whether we quarantined rows
+            if quarantined_count > 0:
+                TelemetryIncidentCreator.register_status(run_id, self.pipeline_id, "QUARANTINED")
+                
+                # Generate a P3 low severity warning incident in database
+                from src.incidents.incident_manager import IncidentManager
+                from src.models.schemas import IncidentStatus
+                
+                incident = IncidentManager.initialize_incident(
+                    run_id=run_id,
+                    pipeline_id=self.pipeline_id,
+                    error_class="DataQualityAnomaly",
+                    error_message=f"Data Quality Warning: isolated {quarantined_count} records to quarantine.",
+                    stack_trace=f"Validation Errors: {quarantined_count} rows isolated.",
+                    telemetry_metadata={"quarantined_count": quarantined_count, "valid_count": len(valid_rows)}
+                )
+                # Auto-resolve the incident immediately since valid data is ingested and pipeline is unblocked
+                IncidentManager.transition_to(incident.incident_id, IncidentStatus.RESOLVED, force_override=True)
+                
+                from src.services.audit_service import AuditService
+                AuditService.log_event(
+                    incident.incident_id,
+                    "CONTROL_PLANE",
+                    f"Partial ingestion completed: {records_written} saved, {quarantined_count} quarantined."
+                )
+            else:
+                TelemetryIncidentCreator.register_status(run_id, self.pipeline_id, "SUCCESS")
+                
             try:
                 from src.config import reset_pipeline_configs
                 reset_pipeline_configs(self.pipeline_id)

@@ -188,6 +188,7 @@ async def get_metrics():
     resolved_count = 0
     investigating_count = 0
     escalated_count = 0
+    quarantined_count = 0
     try:
         with get_db_connection("state_db") as conn:
             cursor = conn.cursor()
@@ -206,6 +207,9 @@ async def get_metrics():
             
             cursor.execute("SELECT COUNT(*) FROM incidents WHERE status = 'ESCALATED'")
             escalated_count = cursor.fetchone()[0]
+            
+            cursor.execute("SELECT COUNT(*) FROM quarantined_records")
+            quarantined_count = cursor.fetchone()[0]
     except Exception as e:
         logger.exception("Failed to query metrics from state DB", error=str(e))
         
@@ -213,7 +217,8 @@ async def get_metrics():
         "resolved": resolved_count,
         "investigating": investigating_count,
         "escalated": escalated_count,
-        "runs_without_incident": runs_without_incident
+        "runs_without_incident": runs_without_incident,
+        "quarantined": quarantined_count
     }
 
 
@@ -224,6 +229,17 @@ async def get_incidents():
         return [i.model_dump() for i in incidents]
     except Exception as e:
         logger.exception("Failed to query incidents", error=str(e))
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/quarantine")
+async def get_quarantine_records():
+    try:
+        from src.services.quarantine_service import QuarantineService
+        records = QuarantineService.get_quarantined_records()
+        return records
+    except Exception as e:
+        logger.exception("Failed to query quarantined records", error=str(e))
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/api/incidents/{incident_id}/audit")
@@ -318,6 +334,29 @@ async def execute_pipeline_a(
                 reset_pipeline_configs(pipeline.pipeline_id)
             except Exception:
                 pass
+            
+            is_quarantined = False
+            try:
+                with get_db_connection("state_db") as conn:
+                    cursor = conn.cursor()
+                    cursor.execute("SELECT status FROM pipeline_runs WHERE run_id = ?", (run_id,))
+                    row = cursor.fetchone()
+                    if row and row[0] == "QUARANTINED":
+                        is_quarantined = True
+            except Exception:
+                pass
+                
+            if is_quarantined:
+                q_count = 0
+                try:
+                    with get_db_connection("state_db") as conn:
+                        cursor = conn.cursor()
+                        cursor.execute("SELECT COUNT(*) FROM quarantined_records WHERE run_id = ?", (run_id,))
+                        q_count = cursor.fetchone()[0]
+                except Exception:
+                    pass
+                return {"status": "success", "rows_ingested": result, "quarantined": True, "quarantined_count": q_count}
+                
             return {"status": "success", "rows_ingested": result}
         else:
             healed = False
@@ -399,6 +438,29 @@ async def execute_pipeline_b(
                 reset_pipeline_configs(pipeline.pipeline_id)
             except Exception:
                 pass
+                
+            is_quarantined = False
+            try:
+                with get_db_connection("state_db") as conn:
+                    cursor = conn.cursor()
+                    cursor.execute("SELECT status FROM pipeline_runs WHERE run_id = ?", (run_id,))
+                    row = cursor.fetchone()
+                    if row and row[0] == "QUARANTINED":
+                        is_quarantined = True
+            except Exception:
+                pass
+                
+            if is_quarantined:
+                q_count = 0
+                try:
+                    with get_db_connection("state_db") as conn:
+                        cursor = conn.cursor()
+                        cursor.execute("SELECT COUNT(*) FROM quarantined_records WHERE run_id = ?", (run_id,))
+                        q_count = cursor.fetchone()[0]
+                except Exception:
+                    pass
+                return {"status": "success", "rows_ingested": result, "quarantined": True, "quarantined_count": q_count}
+                
             return {"status": "success", "rows_ingested": result}
         else:
             healed = False
@@ -429,6 +491,7 @@ async def clear_history():
             conn.execute("DELETE FROM pipeline_runs")
             conn.execute("DELETE FROM audit_logs")
             conn.execute("DELETE FROM pipeline_configs")
+            conn.execute("DELETE FROM quarantined_records")
             conn.commit()
         # Clear operational database tables
         with get_db_connection("operational_db") as conn:
