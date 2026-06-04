@@ -13,8 +13,12 @@
       "dest": "src/api/main.py"
     },
     {
+      "src": "/app.js",
+      "dest": "public/app.js"
+    },
+    {
       "src": "/(.*)",
-      "dest": "src/api/main.py"
+      "dest": "public/index.html"
     }
   ]
 }
