@@ -1,0 +1,13 @@
+{
+  "version": 2,
+  "rewrites": [
+    {
+      "source": "/api/(.*)",
+      "destination": "src/api/main.py"
+    },
+    {
+      "source": "/(.*)",
+      "destination": "public/$1"
+    }
+  ]
+}

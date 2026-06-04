@@ -1,6 +1,10 @@
 # src/api/main.py
-from fastapi import FastAPI, HTTPException, BackgroundTasks, status
+from fastapi import FastAPI, HTTPException, BackgroundTasks, status, Request, UploadFile, File, Form
 import os
+import shutil
+import tempfile
+import sqlite3
+from typing import Optional
 
 from src.models.schemas import (
     PipelineStatus, 
@@ -14,6 +18,7 @@ from src.incidents.incident_manager import IncidentManager
 from src.incidents.incident_repository import IncidentRepository
 from src.services.remediation_service import RemediationService
 from src.telemetry.logger import get_pipeline_logger
+from src.config import get_database_paths, reset_pipeline_configs
 
 logger = get_pipeline_logger("control_plane")
 
@@ -21,6 +26,14 @@ app = FastAPI(
     title="Enterprise Data Reliability Control Plane Gateway",
     version="1.0.0"
 )
+
+@app.get("/")
+async def root():
+    return {
+        "status": "online",
+        "service": "Enterprise Data Reliability Control Plane Gateway",
+        "documentation": "/docs"
+    }
 
 # --- Out-of-Band Intelligence Trigger Loop ---
 def run_agentic_healing_workflow(incident_id: str):
@@ -135,3 +148,237 @@ async def report_pipeline_incident(payload: IncidentSchema, background_tasks: Ba
         }
     except Exception as e:
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"Telemetry parser registration rejected: {str(e)}")
+
+# --- UI Dashboard Support Routes ---
+
+@app.get("/api/metrics")
+async def get_metrics():
+    paths = get_database_paths()
+    runs_without_incident = 0
+    resolved_count = 0
+    investigating_count = 0
+    escalated_count = 0
+    try:
+        with sqlite3.connect(paths["state_db"]) as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                SELECT COUNT(*) FROM pipeline_runs 
+                WHERE status = 'SUCCESS' 
+                  AND run_id NOT IN (SELECT DISTINCT run_id FROM incidents)
+            """)
+            runs_without_incident = cursor.fetchone()[0]
+            
+            cursor.execute("SELECT COUNT(*) FROM incidents WHERE status = 'RESOLVED'")
+            resolved_count = cursor.fetchone()[0]
+            
+            cursor.execute("SELECT COUNT(*) FROM incidents WHERE status = 'INVESTIGATING'")
+            investigating_count = cursor.fetchone()[0]
+            
+            cursor.execute("SELECT COUNT(*) FROM incidents WHERE status = 'ESCALATED'")
+            escalated_count = cursor.fetchone()[0]
+    except Exception as e:
+        logger.exception("Failed to query metrics from state DB", error=str(e))
+        
+    return {
+        "resolved": resolved_count,
+        "investigating": investigating_count,
+        "escalated": escalated_count,
+        "runs_without_incident": runs_without_incident
+    }
+
+@app.get("/api/incidents")
+async def get_incidents():
+    try:
+        incidents = IncidentRepository.get_all_incidents()
+        return [i.model_dump() for i in incidents]
+    except Exception as e:
+        logger.exception("Failed to query incidents", error=str(e))
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/incidents/{incident_id}/audit")
+async def get_incident_audit(incident_id: str):
+    try:
+        audit_trail = IncidentRepository.get_audit_trail(incident_id)
+        return audit_trail
+    except Exception as e:
+        logger.exception("Failed to query audit trail", incident_id=incident_id, error=str(e))
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/escalations")
+async def get_escalations():
+    import re
+    escalations = []
+    log_path = "escalated_incidents.log"
+    
+    # If on Vercel, check in /tmp as well
+    if os.environ.get("VERCEL") == "1" or os.environ.get("VERCEL"):
+        log_path = "/tmp/escalated_incidents.log"
+        
+    if os.path.exists(log_path):
+        try:
+            with open(log_path, "r", encoding="utf-8") as f:
+                lines = f.readlines()
+            for line in lines:
+                line = line.strip()
+                if not line:
+                    continue
+                match = re.match(r"\[(.*?)\] Incident:\s*(.*?)\s*\|\s*(?:Reason|Source File):\s*(.*)", line)
+                if match:
+                    escalations.append({
+                        "timestamp": match.group(1),
+                        "incident_id": match.group(2),
+                        "reason": match.group(3)
+                    })
+        except Exception as e:
+            logger.exception("Failed to read escalations log", error=str(e))
+    return escalations
+
+@app.post("/api/pipelines/a/execute")
+async def execute_pipeline_a(
+    request: Request,
+    test_case: Optional[str] = Form(None),
+    file: Optional[UploadFile] = File(None)
+):
+    # Set CONTROL_PLANE_URL environment variable dynamically
+    base_url = str(request.base_url).rstrip("/")
+    os.environ["CONTROL_PLANE_URL"] = base_url
+    
+    from src.pipeline.csv_pipeline import PipelineA, DEFAULT_JSON_PATH
+    pipeline = PipelineA()
+    
+    # Temporary workspace for custom file or loaded test case
+    temp_file_path = DEFAULT_JSON_PATH
+    original_filename = "customers.json"
+    
+    # Ensure folder exists
+    os.makedirs(os.path.dirname(temp_file_path), exist_ok=True)
+    
+    try:
+        if file:
+            # Write uploaded file directly to execution path
+            contents = await file.read()
+            with open(temp_file_path, "wb") as f:
+                f.write(contents)
+            original_filename = file.filename
+        elif test_case:
+            # Read preloaded test case from test_data/pipeline_A/
+            test_file_path = os.path.join("test_data", "pipeline_A", test_case)
+            if not os.path.exists(test_file_path):
+                raise HTTPException(status_code=404, detail=f"Test case file {test_case} not found.")
+            
+            shutil.copy2(test_file_path, temp_file_path)
+            original_filename = test_case
+        else:
+            raise HTTPException(status_code=400, detail="Must provide either a test_case name or a file upload.")
+        
+        result = pipeline.execute(
+            json_file_path=temp_file_path,
+            simulate_failure_type=None,
+            original_filename=original_filename
+        )
+        
+        if result is not None:
+            # Clear overrides to restore clean default baseline upon successful ingestion
+            try:
+                reset_pipeline_configs(pipeline.pipeline_id)
+            except Exception:
+                pass
+            return {"status": "success", "rows_ingested": result}
+        else:
+            return {"status": "failure", "detail": "Pipeline execution failed. Telemetry reported an incident."}
+            
+    except Exception as ex:
+        logger.exception("Error executing pipeline A", error=str(ex))
+        raise HTTPException(status_code=500, detail=f"Error executing pipeline A: {str(ex)}")
+
+@app.post("/api/pipelines/b/execute")
+async def execute_pipeline_b(
+    request: Request,
+    test_case: Optional[str] = Form(None),
+    file: Optional[UploadFile] = File(None)
+):
+    # Set CONTROL_PLANE_URL environment variable dynamically
+    base_url = str(request.base_url).rstrip("/")
+    os.environ["CONTROL_PLANE_URL"] = base_url
+    
+    from src.pipeline.db_pipeline import PipelineB
+    pipeline = PipelineB()
+    
+    temp_db_file = None
+    original_filename = "telemetry.db"
+    
+    try:
+        if file:
+            # Write uploaded file to a writeable temp file
+            suffix = ".db"
+            with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
+                contents = await file.read()
+                tmp.write(contents)
+                temp_db_file = tmp.name
+            original_filename = file.filename
+        elif test_case:
+            # Read preloaded test case from test_data/pipeline_B/
+            test_file_path = os.path.join("test_data", "pipeline_B", test_case)
+            if not os.path.exists(test_file_path):
+                raise HTTPException(status_code=404, detail=f"Test case file {test_case} not found.")
+            
+            # Copy test DB to a writeable temp file
+            with tempfile.NamedTemporaryFile(delete=False, suffix=".db") as tmp:
+                shutil.copy2(test_file_path, tmp.name)
+                temp_db_file = tmp.name
+            original_filename = test_case
+        else:
+            raise HTTPException(status_code=400, detail="Must provide either a test_case name or a file upload.")
+        
+        result = pipeline.execute(
+            simulate_failure_type=None,
+            op_db_path=temp_db_file,
+            original_filename=original_filename
+        )
+        
+        # Cleanup temp file
+        if temp_db_file and os.path.exists(temp_db_file):
+            try:
+                os.remove(temp_db_file)
+            except Exception:
+                pass
+                
+        if result is not None:
+            try:
+                reset_pipeline_configs(pipeline.pipeline_id)
+            except Exception:
+                pass
+            return {"status": "success", "rows_ingested": result}
+        else:
+            return {"status": "failure", "detail": "Pipeline execution failed. Telemetry reported an incident."}
+            
+    except Exception as ex:
+        logger.exception("Error executing pipeline B", error=str(ex))
+        raise HTTPException(status_code=500, detail=f"Error executing pipeline B: {str(ex)}")
+
+@app.post("/api/history/clear")
+async def clear_history():
+    paths = get_database_paths()
+    try:
+        # Clear state database tables
+        with sqlite3.connect(paths["state_db"]) as conn:
+            conn.execute("DELETE FROM incidents")
+            conn.execute("DELETE FROM pipeline_runs")
+            conn.execute("DELETE FROM audit_logs")
+            conn.execute("DELETE FROM pipeline_configs")
+            conn.commit()
+        # Clear operational database tables
+        with sqlite3.connect(paths["operational_db"]) as conn:
+            conn.execute("DELETE FROM customers")
+            conn.commit()
+        # Clear human escalation log file
+        for log_path in ["escalated_incidents.log", "/tmp/escalated_incidents.log"]:
+            if os.path.exists(log_path):
+                try:
+                    os.remove(log_path)
+                except Exception:
+                    pass
+        return {"status": "success", "message": "Control Plane database history reset successfully!"}
+    except Exception as err:
+        logger.exception("Error resetting history", error=str(err))
+        raise HTTPException(status_code=500, detail=f"Error resetting database: {str(err)}")

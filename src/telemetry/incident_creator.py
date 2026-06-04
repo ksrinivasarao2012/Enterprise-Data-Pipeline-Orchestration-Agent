@@ -7,7 +7,10 @@ from src.telemetry.logger import get_pipeline_logger
 logger = get_pipeline_logger("telemetry")
 from typing import Optional
 
-CONTROL_PLANE_URL = "http://127.0.0.1:8000"
+import os
+
+def get_control_plane_url():
+    return os.environ.get("CONTROL_PLANE_URL", "http://127.0.0.1:8000")
 
 class TelemetryIncidentCreator:
     @staticmethod
@@ -22,7 +25,7 @@ class TelemetryIncidentCreator:
         }
         try:
             response = requests.post(
-                f"{CONTROL_PLANE_URL}/runs/register",
+                f"{get_control_plane_url()}/runs/register",
                 json=payload,
                 timeout=3
             )
@@ -43,7 +46,7 @@ class TelemetryIncidentCreator:
         }
         try:
             requests.post(
-                f"{CONTROL_PLANE_URL}/runs/{run_id}/status",
+                f"{get_control_plane_url()}/runs/{run_id}/status",
                 json=payload,
                 timeout=3
             )
@@ -84,7 +87,7 @@ class TelemetryIncidentCreator:
         
         try:
             response = requests.post(
-                f"{CONTROL_PLANE_URL}/telemetry/incident",
+                f"{get_control_plane_url()}/telemetry/incident",
                 json=payload,
                 timeout=5
             )

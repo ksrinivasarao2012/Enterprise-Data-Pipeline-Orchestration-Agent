@@ -53,11 +53,35 @@ def get_database_paths():
     state_db_path = os.path.abspath(os.path.join(workspace_root, relative_path))
     db_dir = os.path.dirname(state_db_path)
     
-    return {
+    paths = {
         "state_db": state_db_path,
         "operational_db": os.path.join(db_dir, "operational.db"),
         "analytics_db": os.path.join(db_dir, "analytics.db")
     }
+
+    # Vercel Serverless writeable filesystem workaround
+    if os.environ.get("VERCEL") == "1" or os.environ.get("VERCEL"):
+        import shutil
+        tmp_dir = "/tmp/database"
+        os.makedirs(tmp_dir, exist_ok=True)
+        
+        vercel_paths = {
+            "state_db": os.path.join(tmp_dir, "platform_state.db"),
+            "operational_db": os.path.join(tmp_dir, "operational.db"),
+            "analytics_db": os.path.join(tmp_dir, "analytics.db")
+        }
+        
+        # Copy file if it doesn't exist in /tmp
+        for key in ["state_db", "operational_db", "analytics_db"]:
+            if not os.path.exists(vercel_paths[key]) and os.path.exists(paths[key]):
+                try:
+                    shutil.copy2(paths[key], vercel_paths[key])
+                except Exception:
+                    pass
+                
+        return vercel_paths
+
+    return paths
 
 def generate_error_signature(pipeline_id: str, exception_type: str, missing_key: str) -> str:
     """Returns a standardized sha256 hash of the error context parameters."""
