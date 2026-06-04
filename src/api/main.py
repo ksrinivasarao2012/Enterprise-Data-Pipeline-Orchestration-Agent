@@ -302,10 +302,14 @@ async def execute_pipeline_a(
         else:
             raise HTTPException(status_code=400, detail="Must provide either a test_case name or a file upload.")
         
+        import uuid
+        run_id = f"run_a_{uuid.uuid4().hex[:6]}"
+
         result = pipeline.execute(
             json_file_path=temp_file_path,
             simulate_failure_type=None,
-            original_filename=original_filename
+            original_filename=original_filename,
+            run_id=run_id
         )
         
         if result is not None:
@@ -316,6 +320,18 @@ async def execute_pipeline_a(
                 pass
             return {"status": "success", "rows_ingested": result}
         else:
+            healed = False
+            try:
+                with get_db_connection("state_db") as conn:
+                    cursor = conn.cursor()
+                    cursor.execute("SELECT status FROM pipeline_runs WHERE run_id = ?", (run_id,))
+                    row = cursor.fetchone()
+                    if row and row[0] == "HEALED":
+                        healed = True
+            except Exception:
+                pass
+            if healed:
+                return {"status": "success", "rows_ingested": "Auto-healed", "healed": True}
             return {"status": "failure", "detail": "Pipeline execution failed. Telemetry reported an incident."}
             
     except Exception as ex:
@@ -361,10 +377,14 @@ async def execute_pipeline_b(
         else:
             raise HTTPException(status_code=400, detail="Must provide either a test_case name or a file upload.")
         
+        import uuid
+        run_id = f"run_b_{uuid.uuid4().hex[:6]}"
+
         result = pipeline.execute(
             simulate_failure_type=None,
             op_db_path=temp_db_file,
-            original_filename=original_filename
+            original_filename=original_filename,
+            run_id=run_id
         )
         
         # Cleanup temp file
@@ -381,6 +401,18 @@ async def execute_pipeline_b(
                 pass
             return {"status": "success", "rows_ingested": result}
         else:
+            healed = False
+            try:
+                with get_db_connection("state_db") as conn:
+                    cursor = conn.cursor()
+                    cursor.execute("SELECT status FROM pipeline_runs WHERE run_id = ?", (run_id,))
+                    row = cursor.fetchone()
+                    if row and row[0] == "HEALED":
+                        healed = True
+            except Exception:
+                pass
+            if healed:
+                return {"status": "success", "rows_ingested": "Auto-healed", "healed": True}
             return {"status": "failure", "detail": "Pipeline execution failed. Telemetry reported an incident."}
             
     except Exception as ex:

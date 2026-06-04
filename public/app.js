@@ -355,8 +355,13 @@ async function runPipelineA() {
         resultBox.className = "text-xs rounded-lg p-3 mt-2 ";
         if (res.ok && data.status === "success") {
             resultBox.classList.add('bg-emerald-500/10', 'text-emerald-400', 'border', 'border-emerald-500/20');
-            resultBox.textContent = `Ingestion successful! Mapped and saved ${data.rows_ingested} records.`;
-            showToast("Pipeline A execution completed successfully!", "success");
+            if (data.healed) {
+                resultBox.textContent = `Pipeline A execution auto-healed! Remedied issues and successfully ingested data.`;
+                showToast("Pipeline A execution auto-healed successfully!", "success");
+            } else {
+                resultBox.textContent = `Ingestion successful! Mapped and saved ${data.rows_ingested} records.`;
+                showToast("Pipeline A execution completed successfully!", "success");
+            }
             
             // Clear inputs
             fileInput.value = "";
@@ -420,8 +425,13 @@ async function runPipelineB() {
         resultBox.className = "text-xs rounded-lg p-3 mt-2 ";
         if (res.ok && data.status === "success") {
             resultBox.classList.add('bg-emerald-500/10', 'text-emerald-400', 'border', 'border-emerald-500/20');
-            resultBox.textContent = `Pipeline B ETL successful! Aggregated and stored ${data.rows_ingested} records.`;
-            showToast("Pipeline B execution completed successfully!", "success");
+            if (data.healed) {
+                resultBox.textContent = `Pipeline B execution auto-healed! Remedied issues and successfully ingested data.`;
+                showToast("Pipeline B execution auto-healed successfully!", "success");
+            } else {
+                resultBox.textContent = `Pipeline B ETL successful! Aggregated and stored ${data.rows_ingested} records.`;
+                showToast("Pipeline B execution completed successfully!", "success");
+            }
             
             // Clear inputs
             fileInput.value = "";
