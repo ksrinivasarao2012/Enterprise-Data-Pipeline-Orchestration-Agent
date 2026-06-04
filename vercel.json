@@ -16,6 +16,14 @@
       "dest": "src/api/main.py"
     },
     {
+      "src": "/telemetry/incident",
+      "dest": "src/api/main.py"
+    },
+    {
+      "src": "/runs/(.*)",
+      "dest": "src/api/main.py"
+    },
+    {
       "src": "/app.js",
       "dest": "public/app.js"
     },
