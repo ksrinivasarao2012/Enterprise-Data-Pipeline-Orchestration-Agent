@@ -1,5 +1,7 @@
 # Enterprise Data Pipeline Orchestration & Agentic Self-Healing Platform
 
+[![GitHub Repository](https://img.shields.io/badge/GitHub-Repository-blue?logo=github)](https://github.com/KSrinivasarao2012/Enterprise-Data-Pipeline-Orchestration-Agent)
+
 An advanced, production-grade SRE (Site Reliability Engineering) automation platform that orchestrates, monitors, and **automatically heals** data pipelines when they encounter structural drifts, operational failures, or query syntax anomalies — using a multi-agent cooperative framework powered by **LangGraph** and **Google Gemini**.
 
 > **Live Demo**: [https://enterprise-data-pipeline-orchestrat.vercel.app](https://enterprise-data-pipeline-orchestrat.vercel.app)
