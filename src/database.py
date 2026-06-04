@@ -9,7 +9,7 @@ logger = get_pipeline_logger("database_adapter")
 
 # Check if Vercel Postgres URL is present in the environment
 # Vercel automatically injects POSTGRES_URL or POSTGRES_PRISMA_URL when Postgres storage is connected.
-POSTGRES_URL = os.environ.get("POSTGRES_URL") or os.environ.get("POSTGRES_PRISMA_URL") or os.environ.get("DATABASE_URL")
+POSTGRES_URL = os.environ.get("POSTGRES_URL") or os.environ.get("POSTGRES_PRISMA_URL") or os.environ.get("DATABASE_URL") or os.environ.get("STORAGE_URL")
 
 # Resolve standard postgresql protocol if it starts with postgres:// (pg8000 expects postgresql://)
 if POSTGRES_URL and POSTGRES_URL.startswith("postgres://"):
