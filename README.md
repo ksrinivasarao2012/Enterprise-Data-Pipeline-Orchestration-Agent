@@ -90,9 +90,9 @@ When a pipeline throws an exception, the telemetry interceptor captures the erro
 2. **Classifier Agent**: Examines error signatures and categorizes the blast radius into Severity Levels (`P0`–`P3`) and Incident Categories (`SCHEMA_DRIFT`, `DATABASE_FAILURE`, etc.).
 3. **RCA Agent**: Uses Gemini to formulate a detailed technical diagnosis, tracing structural exceptions back to code logic.
 4. **Recovery Agent (Actuator)**: Builds a correction directive (e.g., mapping `id_col` to `customer_id` or rewriting SQL queries). It tests the fix in a sandbox:
-   - ✅ **Dry-run succeeds** → Configuration committed, incident marked `RESOLVED`.
-   - ⚠️ **Dry-run reveals a *new* error** → Current fix committed, subsequent runs heal remaining issues iteratively.
-   - ❌ **Original error persists** → Draft config rolled back, incident `ESCALATED` to human operators.
+   - **Dry-run succeeds** (Success) → Configuration committed, incident marked `RESOLVED`.
+   - **Dry-run reveals a *new* error** (Warning) → Current fix committed, subsequent runs heal remaining issues iteratively.
+   - **Original error persists** (Failure) → Draft config rolled back, incident `ESCALATED` to human operators.
 
 ### 4. Incident Classification & Severity Routing
 
@@ -142,7 +142,7 @@ Validation errors are extracted per-row from `ValidationError.errors()`, strippe
 
 ---
 
-## 📂 Project Structure
+## Project Structure
 
 ```
 ├── .env                            # Local API keys & secrets (NOT committed to git)
@@ -454,7 +454,7 @@ Open the dashboard and run these testing scenarios:
 
 | Variable | Required | Description |
 |:---|:---|:---|
-| `GOOGLE_API_KEY` | ✅ | Google Gemini API key for LLM-powered agents |
+| `GOOGLE_API_KEY` | Yes | Google Gemini API key for LLM-powered agents |
 | `POSTGRES_URL` | Auto-injected | Vercel Neon Postgres connection string (auto-set by Vercel Storage) |
 | `VERCEL` | Auto-injected | Set to `"1"` by Vercel runtime to signal serverless environment |
 
