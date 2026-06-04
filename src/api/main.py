@@ -383,5 +383,7 @@ async def clear_history():
         raise HTTPException(status_code=500, detail=f"Error resetting database: {str(err)}")
 
 # Mount static files at the root route - must be registered last to avoid intercepting specific API paths
-if os.path.exists("public"):
-    app.mount("/", StaticFiles(directory="public", html=True), name="public")
+base_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+public_dir = os.path.join(base_dir, "public")
+if os.path.exists(public_dir):
+    app.mount("/", StaticFiles(directory=public_dir, html=True), name="public")
