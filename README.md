@@ -1,10 +1,11 @@
 # Enterprise Data Pipeline Orchestration & Agentic Self-Healing Platform
 
 [![GitHub Repository](https://img.shields.io/badge/GitHub-Repository-blue?logo=github)](https://github.com/KSrinivasarao2012/Enterprise-Data-Pipeline-Orchestration-Agent)
+[![Deployment Status](https://img.shields.io/badge/Vercel-Not%20Yet%20Deployed-orange?logo=vercel)](https://vercel.com)
 
 An advanced, production-grade SRE (Site Reliability Engineering) automation platform that orchestrates, monitors, and **automatically heals** data pipelines when they encounter structural drifts, operational failures, or query syntax anomalies — using a multi-agent cooperative framework powered by **LangGraph** and **Google Gemini**.
 
-> **Live Demo**: [https://enterprise-data-pipeline-orchestrat.vercel.app](https://enterprise-data-pipeline-orchestrat.vercel.app)
+> **Note**: Vercel cloud deployment has not been configured yet. Follow [Option B](#option-b-vercel-cloud-deployment-production) in the Deployment section to deploy to Vercel.
 
 ---
 
@@ -301,7 +302,10 @@ venv\Scripts\python.exe run_platform.py
 
 ### Option B: Vercel Cloud Deployment (Production)
 
+> **Current Status**: The project is fully configured for Vercel deployment (`vercel.json` and `pyproject.toml` are ready) but has **not yet been deployed**. Follow the steps below to go live.
+
 The platform is fully deployable to **Vercel's free tier** with zero configuration changes. The dual-database adapter (`src/database.py`) automatically detects the environment and switches between SQLite (local) and Neon Postgres (Vercel).
+
 
 #### 1. Push to GitHub
 
