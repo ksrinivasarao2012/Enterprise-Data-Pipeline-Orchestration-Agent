@@ -28,13 +28,6 @@ app = FastAPI(
     version="1.0.0"
 )
 
-@app.get("/")
-async def root():
-    return {
-        "status": "online",
-        "service": "Enterprise Data Reliability Control Plane Gateway",
-        "documentation": "/docs"
-    }
 
 # --- Out-of-Band Intelligence Trigger Loop ---
 def run_agentic_healing_workflow(incident_id: str):
