@@ -12,8 +12,10 @@ An advanced, production-grade SRE (Site Reliability Engineering) automation plat
 - **Multi-Agent Self-Healing** — Four cooperative LangGraph agents (Monitor → Classifier → RCA → Recovery) automatically diagnose and remediate failures without human intervention.
 - **Iterative Schema Drift Recovery** — Handles compounding multi-column drifts across successive pipeline runs using persistent configuration overrides.
 - **LLM-Powered File Repair** — Gemini automatically repairs malformed JSON syntax on disk and retries ingestion.
+- **Hybrid Fault-Tolerance & Quarantine** — Row-level anomalies (bad email formats, duplicate IDs, null device IDs) are isolated per-row into a dedicated `quarantined_records` table. Healthy records are always ingested, and invalid records are logged for operator review — without crashing the pipeline.
+- **Pydantic v2 Validation** — All ingested customer records are validated via a typed `CustomerRecord` Pydantic model. Custom field validators handle type coercions (e.g., `5` → `"5"`), null checks, email format rules, and string normalizations before any database write.
 - **Dual-Database Architecture** — Runs locally on SQLite, and automatically switches to **Neon Postgres** when deployed to Vercel — zero code changes required.
-- **Real-Time Dashboard** — A responsive, dark-themed web dashboard with live metrics, incident tracking, audit trails, and pipeline execution sandbox.
+- **Real-Time Dashboard** — A responsive, dark-themed web dashboard with live metrics, incident tracking, quarantine log, data ingestion rules reference, and pipeline execution sandbox.
 - **Vercel-Native Deployment** — Fully serverless deployment on Vercel's free tier with in-process healing (no background task limitations).
 
 ---
@@ -115,7 +117,7 @@ When a pipeline throws an exception, the telemetry interceptor captures the erro
 
 ### 5. Hybrid Quarantine & Fault-Tolerance Model
 
-To prevent minor row-level anomalies (like invalid formatting or single duplicate entries) from blocking entire pipeline ingestion runs, the platform implements a hybrid fault-tolerance model. 
+To prevent minor row-level anomalies (like invalid formatting or single duplicate entries) from blocking entire pipeline ingestion runs, the platform implements a hybrid fault-tolerance model.
 
 *   **Granular Quarantine Isolation**: Individual row failures (e.g., email format errors or duplicate IDs in Pipeline A, or NULL device IDs in Pipeline B) are written to a dedicated `quarantined_records` table in the state database.
 *   **Partial Success Flow**: Healthy records are successfully loaded into the destination tables, while the run completes under a terminal status of `QUARANTINED` (with warning metrics displayed on the dashboard).
@@ -124,6 +126,19 @@ To prevent minor row-level anomalies (like invalid formatting or single duplicat
     *   **All Rows Invalid**: If 100% of the ingestion payload is quarantined (resulting in `0` valid records loaded), the pipeline throws a `ValueError`. This registers the run as `FAILED` and raises an open incident.
     *   **Agentic Actuation**: For failed aggregates, the LangGraph Recovery agent is invoked. If it deploys a `QUARANTINE` directive (isolating the bad records), the actuator updates the run status to `HEALED` post-isolation.
     *   **Infinite Loop Prevention**: If a configuration dry-run during schema-drift recovery encounters the **same missing primary ID/key** error, the actuator rolls back the configurations and escalates the incident directly to a human on-call engineer via `_handle_escalation()`.
+
+### 6. Pydantic v2 Validation Layer
+
+All customer records ingested via Pipeline A are validated through a typed `CustomerRecord` Pydantic BaseModel before any database write:
+
+| Field | Type | Rule |
+|:---|:---|:---|
+| `customer_id` | `str` (Required) | Coerced from any type (e.g. `5` → `"5"`), must not be null or empty. Duplicates in batch or DB are quarantined. |
+| `email` | `str` (Required) | Must contain `"@"`. Coerced to string. Malformed values are quarantined, not crashed. |
+| `name` | `str` (Optional) | Coerced to string, defaults to `""` if missing or null. |
+| `country` | `str` (Optional) | Coerced to string, defaults to `""` if missing or null. |
+
+Validation errors are extracted per-row from `ValidationError.errors()`, stripped of Pydantic's `"Value error, "` prefix, and added to the row's quarantine log entry. This ensures clean, human-readable error records in the Quarantine Log dashboard.
 
 ---
 
@@ -149,8 +164,8 @@ To prevent minor row-level anomalies (like invalid formatting or single duplicat
 │   └── analytics.db                # Target warehouse for aggregated metrics
 │
 ├── public/                         # Static web dashboard (served on Vercel & locally)
-│   ├── index.html                  # Dashboard UI (dark-themed, responsive)
-│   └── app.js                      # Dashboard logic (fetch, render, pipeline controls)
+│   ├── index.html                  # Dashboard UI (dark-themed, responsive, GitHub link, Data Rules panel)
+│   └── app.js                      # Dashboard logic (fetch, render, pipeline controls, quarantine log)
 │
 ├── src/
 │   ├── database.py                 # Dual-database adapter (SQLite ↔ Postgres)
@@ -184,6 +199,7 @@ To prevent minor row-level anomalies (like invalid formatting or single duplicat
 │   ├── services/
 │   │   ├── audit_service.py        # Centralized audit logging service
 │   │   ├── pipeline_service.py     # Pipeline execution status tracking
+│   │   ├── quarantine_service.py   # Quarantine record insert, fetch & clear operations
 │   │   └── remediation_service.py  # Actuator with dry-run verification & rollback
 │   │
 │   ├── telemetry/
@@ -375,22 +391,24 @@ Open the dashboard and run these testing scenarios:
 
 | Test JSON File | Expected Behavior | Explanation | Healing Outcome |
 |:---|:---|:---|:---|
-| `case_healthy.json` | **Success** | Matches baseline schema exactly. | Writes records to `customers` table. |
+| `case_healthy.json` | **Success** | Matches baseline schema exactly. | All 10 records written to `customers` table. |
 | `case_drift_country.json` | **Failure → Self-Healed** | Key `country` renamed to `nation`, triggers `KeyError`. | LangGraph matches drift, saves override config, marks `RESOLVED`. |
 | `case_drift_email.json` | **Failure → Self-Healed** | Two drifts: `customer_id` → `id`, `email` → `user_email`. | Heals ID key first, catches email drift during dry-run, resolves both. |
 | `case_invalid_root.json` | **Failure → Self-Healed** | JSON root is a dictionary instead of a list. | Applies `flatten_root_dict: True` override to extract values as array. |
 | `case_malformed_syntax.json` | **Failure → Self-Healed** | Malformed JSON (missing commas/brackets). | Gemini repairs syntax on disk via `REPAIR_FILE` directive, retries. |
-| `case_invalid_email.json` | **Failure → Escalated** | Invalid email patterns in row data. | Cannot auto-fix raw data values; escalated to human operators. |
-| `case_duplicate_ids.json` | **Failure → Escalated** | Duplicate customer IDs in batch. | Data logic error beyond config overrides; escalated. |
+| `case_invalid_email.json` | **Partial → Quarantined** | One row has invalid email (`john.doe_example.com` missing `@`). | Pydantic validator catches it; bad row isolated to `quarantined_records`, remaining 9 rows ingested successfully. Run status: `QUARANTINED`. |
+| `case_duplicate_ids.json` | **Partial → Quarantined** | One duplicate `customer_id` exists in the batch. | Stateful batch duplicate check catches it; duplicate row quarantined, remaining rows ingested. Run status: `QUARANTINED`. |
+
+> **Note**: Both `case_invalid_email.json` and `case_duplicate_ids.json` previously caused full pipeline failures and escalations. After the Pydantic validation and hybrid quarantine refactoring, these now complete as partial successes — isolating only the bad rows.
 
 ### Pipeline B: Test File Outcomes
 
 | Test DB File | Expected Behavior | Explanation |
 |:---|:---|:---|
 | `healthy.db` | **Success** | Validates table structures and completes aggregation cleanly. |
-| `sql_error.db` | **Failure → Self-Healed** | Missing columns cause query failure; Gemini rewrites SQL to bypass. |
-| `referential_integrity.db` | **Failure → Self-Healed** | Null device IDs trigger `DATA_QUALITY`; quarantined automatically. |
-| `missing_table.db` | **Failure → Escalated** | Table `device_telemetry` not found; requires manual setup. |
+| `sql_error.db` | **Failure → Escalated** | Missing `status_code` column; LangGraph attempts SQL patch but escalates to on-call if repair bounds are exceeded. |
+| `referential_integrity.db` | **Failed → Healed** | All device IDs are NULL; quarantined by Pipeline B. LangGraph `QUARANTINE` directive resolves the incident. Run status: `HEALED`. |
+| `missing_table.db` | **Failure → Escalated** | Table `device_telemetry` not found; requires manual infrastructure setup. |
 
 ---
 
@@ -401,9 +419,16 @@ Open the dashboard and run these testing scenarios:
 - **Defined Remediation Pathway**: The Recovery Agent handles `root_structure` by triggering a `RECONFIGURE` action with `flatten_root_dict: True`.
 - **System Actuation**: The validator whitelists `flatten_root_dict` as a valid boolean override. The parser converts dictionary values into a standard array using `list(raw_data.values())`.
 
-### Why `case_invalid_email` Escalates (Does Not Auto-Heal)
-- **No Error Signature**: Row-level verification checks are inline. Since no config-level column mapping can fix a malformed string value (e.g., `john.doe_example.com` missing `@`), the code raises a generic `ValueError`.
-- **No Safe Automated Guessing**: The healing engine cannot fabricate valid email strings. Resolving invalid emails requires human SRE lookup or data provider feedback, making `ESCALATED` the correct safety behavior.
+### Why `case_invalid_email` is Quarantined (Not Escalated)
+- **Row-Level Isolation**: The Pydantic `CustomerRecord` validator catches the missing `@` character in the email field and raises a `ValidationError` for that specific row.
+- **Partial Success**: Only the invalid row is written to `quarantined_records`. All remaining valid rows are successfully ingested.
+- **No Run Crash**: Since valid data was loaded, the run ends with status `QUARANTINED` (not `FAILED`), and a P3 auto-resolved warning incident is logged.
+- **When it Escalates**: Only if **all rows** in the batch fail validation does the pipeline raise a `ValueError` (0 valid records), triggering the LangGraph healing loop.
+
+### Why `case_duplicate_ids` is Quarantined (Not Escalated)
+- **Stateful Batch Check**: After Pydantic validates the format of the record, a batch-level `seen_ids_in_batch` set detects the duplicate `customer_id`.
+- **Selective Quarantine**: The duplicate row is isolated. The original (first-seen) and all other unique rows are ingested successfully.
+- **Run Status**: `QUARANTINED` with a P3 auto-resolved warning incident logged.
 
 ---
 
@@ -416,10 +441,10 @@ Open the dashboard and run these testing scenarios:
 | LLM Provider | Google Gemini (`gemini-2.5-flash`) |
 | Local Database | SQLite 3 |
 | Cloud Database | Neon Postgres (via `pg8000`) |
-| Frontend Dashboard | HTML5, Vanilla JS, CSS |
+| Frontend Dashboard | HTML5, Vanilla JS, Tailwind CSS |
 | Local Dashboard (Alt) | Streamlit |
 | Structured Logging | structlog |
-| Data Validation | Pydantic v2 |
+| Data Validation | **Pydantic v2** (`CustomerRecord` model with field validators) |
 | Cloud Hosting | Vercel (Serverless Python) |
 | Dependency Management | `uv` / `pip` |
 

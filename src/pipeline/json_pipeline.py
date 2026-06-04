@@ -6,6 +6,7 @@ import sqlite3
 import os
 from datetime import datetime, timezone
 from typing import Optional, Dict
+from pydantic import BaseModel, Field, field_validator, ValidationError
 
 # Resolve operational database path cleanly
 from src.config import get_database_paths, get_active_pipeline_config, generate_error_signature
@@ -16,6 +17,43 @@ logger = get_pipeline_logger("pipeline_csv")
 paths = get_database_paths()
 OPERATIONAL_DB_PATH = paths["operational_db"]
 DEFAULT_JSON_PATH = os.path.join(os.path.dirname(paths["state_db"]), "customers.json")
+
+
+class CustomerRecord(BaseModel):
+    customer_id: str = Field(..., min_length=1)
+    name: str = Field(default="")
+    email: str = Field(...)
+    country: Optional[str] = Field(default="")
+
+    @field_validator("customer_id", mode="before")
+    @classmethod
+    def coerce_id(cls, v):
+        if v is None:
+            raise ValueError("Customer ID cannot be empty or null")
+        s = str(v).strip()
+        if not s:
+            raise ValueError("Customer ID cannot be empty or null")
+        return s
+
+    @field_validator("name", mode="before")
+    @classmethod
+    def coerce_name(cls, v):
+        return str(v).strip() if v is not None else ""
+
+    @field_validator("email", mode="before")
+    @classmethod
+    def coerce_email(cls, v):
+        if v is None:
+            raise ValueError("Invalid email formatting on value 'None'")
+        s = str(v).strip()
+        if "@" not in s:
+            raise ValueError(f"Invalid email formatting on value '{s}'")
+        return s
+
+    @field_validator("country", mode="before")
+    @classmethod
+    def coerce_country(cls, v):
+        return str(v).strip() if v is not None else ""
 
 
 class PipelineA:
@@ -34,7 +72,7 @@ class PipelineA:
     ) -> Optional[int]:
         """
         Runs the batch customer JSON parsing engine. Supports schema adjustment parameters 
-        passed by the self‑healing multi‑agent cluster to recover from schema drift.
+        passed by the self-healing multi-agent cluster to recover from schema drift.
         """
         if not run_id:
             run_id = f"run_a_{uuid.uuid4().hex[:6]}"
@@ -65,7 +103,7 @@ class PipelineA:
         # Transient overrides passed at execution time
         if schema_mapping_override:
             logger.info(
-                "Applying transient run‑level schema mapping overrides",
+                "Applying transient run-level schema mapping overrides",
                 pipeline_id=self.pipeline_id,
                 overrides=schema_mapping_override,
             )
@@ -86,7 +124,7 @@ class PipelineA:
             
             if not isinstance(raw_data, list):
                 if schema_mapping.get("flatten_root_dict") in [True, "True", "true"] and isinstance(raw_data, dict):
-                    print(f"[{self.pipeline_id}] Auto‑flattening root dictionary into list based on schema override…")
+                    print(f"[{self.pipeline_id}] Auto-flattening root dictionary into list based on schema override...")
                     raw_data = list(raw_data.values())
                 else:
                     sig = generate_error_signature(self.pipeline_id, "ValueError", "root_structure")
@@ -165,32 +203,42 @@ class PipelineA:
                             raise KeyError(
                                 f"[ErrorSignature: {self.pipeline_id}|KeyError|{expected_key}|{sig}] Expected: {expected} | Found: {actual}"
                             )
-                            
-                    p_id = item[schema_mapping["id_col"]]
-                    p_email = item[schema_mapping["email_col"]]
-                    p_name = item[schema_mapping["name_col"]]
-                    p_country = item[schema_mapping["country_col"]]
                     
-                    # 1. Null / Empty Primary ID Check
-                    if p_id is None or str(p_id).strip() == "":
-                        row_errors.append("Customer ID cannot be empty or null")
-                    else:
-                        # 2. Database Duplicate Check (if simulated)
+                    # 1. Map raw item keys using schema_mapping configuration
+                    mapped_item = {
+                        "customer_id": item.get(schema_mapping["id_col"]),
+                        "name": item.get(schema_mapping["name_col"]),
+                        "email": item.get(schema_mapping["email_col"]),
+                        "country": item.get(schema_mapping["country_col"]),
+                    }
+                    
+                    # 2. Run Pydantic validation
+                    validated_record = None
+                    try:
+                        validated_record = CustomerRecord(**mapped_item)
+                    except ValidationError as e:
+                        for err in e.errors():
+                            msg = err["msg"]
+                            if msg.startswith("Value error, "):
+                                msg = msg[len("Value error, "):]
+                            row_errors.append(msg)
+                    
+                    # 3. Perform stateful checks if Pydantic validation passes
+                    if validated_record:
+                        p_id = validated_record.customer_id
+                        
+                        # Database Duplicate Check (if simulated)
                         if simulate_failure_type == "DUPLICATE":
                             cur.execute("SELECT 1 FROM customers WHERE customer_id = ?", (p_id,))
                             if cur.fetchone():
                                 row_errors.append(f"Customer ID '{p_id}' already exists in database")
                         
-                        # 3. Batch Duplicate Check
+                        # Batch Duplicate Check
                         if p_id in seen_ids_in_batch:
                             row_errors.append(f"Duplicate Customer ID '{p_id}' within batch")
                         else:
                             seen_ids_in_batch.add(p_id)
-                    
-                    # 4. Email Formatting Check
-                    if not p_email or "@" not in p_email:
-                        row_errors.append(f"Invalid email formatting on value '{p_email}'")
-                    
+                            
                     if row_errors:
                         # Quarantine the row record
                         from src.services.quarantine_service import QuarantineService
@@ -203,7 +251,7 @@ class PipelineA:
                         )
                         quarantined_count += 1
                     else:
-                        valid_rows.append(item)
+                        valid_rows.append(validated_record)
             
             # If all rows failed, throw ValueError to register run as FAILED
             if quarantined_count > 0 and not valid_rows:
@@ -215,11 +263,7 @@ class PipelineA:
             if valid_rows:
                 with get_db_connection("operational_db") as conn:
                     cur = conn.cursor()
-                    for item in valid_rows:
-                        p_id = item[schema_mapping["id_col"]]
-                        p_email = item[schema_mapping["email_col"]]
-                        p_name = item[schema_mapping["name_col"]]
-                        p_country = item[schema_mapping["country_col"]]
+                    for record in valid_rows:
                         insert_q = """
                             INSERT OR REPLACE INTO customers (customer_id, name, email, country, signup_date, status, total_orders)
                             VALUES (?, ?, ?, ?, ?, 'ACTIVE', 0)
@@ -227,10 +271,10 @@ class PipelineA:
                         cur.execute(
                             insert_q,
                             (
-                                p_id,
-                                p_name,
-                                p_email,
-                                p_country,
+                                record.customer_id,
+                                record.name,
+                                record.email,
+                                record.country,
                                 datetime.now(timezone.utc).date().isoformat(),
                             ),
                         )

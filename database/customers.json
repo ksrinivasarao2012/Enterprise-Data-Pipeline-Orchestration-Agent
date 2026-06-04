@@ -1,12 +1,12 @@
 [
-  {"customer_id": "tc_0001", "name": "John Doe", "email": "john.doe@example.com", "country": "USA"},
-  {"customer_id": "tc_0002", "name": "Jane Smith", "email": "jane.smith@example.com", "country": "Canada"},
-  {"customer_id": "tc_0003", "name": "Max Mustermann", "email": "max.mustermann@example.com", "country": "Germany"},
-  {"customer_id": "tc_0004", "name": "Jean Dupont", "email": "jean.dupont@example.com", "country": "France"},
-  {"customer_id": "tc_0005", "name": "Yuki Tanaka", "email": "yuki.tanaka@example.com"
-  {"customer_id": "tc_0006", "name": "Carlos Gomez", "email": "carlos.gomez@example.com", "country": "Mexico"},
-  {"customer_id": "tc_0007", "name": "Liam Neeson", "email": "liam.neeson@example.com", "country": "UK"},
-  {"customer_id": "tc_0008", "name": "Emma Watson", "email": "emma.watson@example.com", "country": "Australia"},
-  {"customer_id": "tc_0009", "name": "Ravi Kumar", "email": "ravi.kumar@example.com", "country": "India"},
-  {"customer_id": "tc_0010", "name": "Sofia Rossi", "email": "sofia.rossi@example.com", "country": "Italy"}
+  {"customer_id": "tc_0041", "name": "John Doe", "email": "john.doe@example.com", "country": "USA"},
+  {"customer_id": "tc_0042", "name": "Jane Smith", "email": "jane.smith@example.com", "country": "Canada"},
+  {"customer_id": "tc_0043", "name": "Max Mustermann", "email": "max.mustermann@example.com", "country": "Germany"},
+  {"customer_id": "tc_0044", "name": "Jean Dupont", "email": "jean.dupont@example.com", "country": "France"},
+  {"customer_id": "tc_0045", "name": "Yuki Tanaka", "email": "yuki.tanaka@example.com", "country": "Japan"},
+  {"customer_id": "tc_0041", "name": "Duplicate John", "email": "dup.john@example.com", "country": "USA"},
+  {"customer_id": "tc_0046", "name": "Carlos Gomez", "email": "carlos.gomez@example.com", "country": "Mexico"},
+  {"customer_id": "tc_0047", "name": "Liam Neeson", "email": "liam.neeson@example.com", "country": "UK"},
+  {"customer_id": "tc_0048", "name": "Emma Watson", "email": "emma.watson@example.com", "country": "Australia"},
+  {"customer_id": "tc_0049", "name": "Ravi Kumar", "email": "ravi.kumar@example.com", "country": "India"}
 ]
