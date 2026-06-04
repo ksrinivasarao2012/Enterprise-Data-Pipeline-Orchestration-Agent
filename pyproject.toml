@@ -4,6 +4,7 @@ version = "0.1.0"
 description = "Enterprise Data Pipeline Orchestration Agent"
 readme = "README.md"
 requires-python = ">=3.11"
+
 dependencies = [
     "fastapi==0.115.0",
     "pydantic==2.9.2",
@@ -15,9 +16,9 @@ dependencies = [
     "langchain-core>=0.3.10",
     "langchain-google-genai>=2.0.0",
     "python-dotenv==1.0.1",
-    "aiofiles>=23.0.0"
+    "aiofiles>=23.0.0",
+    "python-multipart>=0.0.9"
 ]
-
 [project.optional-dependencies]
 local = [
     "uvicorn[standard]==0.30.1",
