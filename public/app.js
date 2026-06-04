@@ -233,6 +233,7 @@ async function runPipelineA() {
     const preset = document.getElementById('preset-pipeline-a').value;
     const fileInput = document.getElementById('upload-a');
     const resultBox = document.getElementById('result-a');
+    const btn = document.getElementById('btn-pipeline-a');
     
     resultBox.className = "hidden text-xs rounded-lg p-3";
     resultBox.textContent = "";
@@ -243,9 +244,16 @@ async function runPipelineA() {
     } else if (preset) {
         formData.append("test_case", preset);
     } else {
-        alert("Please select a preloaded scenario or upload a custom JSON file first.");
+        resultBox.className = "text-xs rounded-lg p-3 bg-rose-500/10 text-rose-400 border border-rose-500/20 mt-2";
+        resultBox.classList.remove('hidden');
+        resultBox.textContent = "Warning: Please select a preloaded scenario or upload a custom JSON file first.";
         return;
     }
+    
+    // Disable button to prevent double-execution
+    btn.disabled = true;
+    btn.textContent = "Executing Ingestion Pipeline A... Please wait...";
+    btn.classList.add('opacity-50', 'cursor-not-allowed');
     
     resultBox.classList.remove('hidden');
     resultBox.classList.add('bg-slate-900', 'text-slate-400');
@@ -273,6 +281,11 @@ async function runPipelineA() {
     } catch (err) {
         resultBox.className = "text-xs rounded-lg p-3 bg-rose-500/10 text-rose-400 border border-rose-500/20 mt-2";
         resultBox.textContent = "Error executing pipeline: " + err.message;
+    } finally {
+        // Re-enable button
+        btn.disabled = false;
+        btn.textContent = "Execute Ingestion Pipeline A";
+        btn.classList.remove('opacity-50', 'cursor-not-allowed');
     }
     
     // Refresh lists immediately
@@ -284,6 +297,7 @@ async function runPipelineB() {
     const preset = document.getElementById('preset-pipeline-b').value;
     const fileInput = document.getElementById('upload-b');
     const resultBox = document.getElementById('result-b');
+    const btn = document.getElementById('btn-pipeline-b');
     
     resultBox.className = "hidden text-xs rounded-lg p-3";
     resultBox.textContent = "";
@@ -294,9 +308,16 @@ async function runPipelineB() {
     } else if (preset) {
         formData.append("test_case", preset);
     } else {
-        alert("Please select a preloaded scenario or upload a custom DB file first.");
+        resultBox.className = "text-xs rounded-lg p-3 bg-rose-500/10 text-rose-400 border border-rose-500/20 mt-2";
+        resultBox.classList.remove('hidden');
+        resultBox.textContent = "Warning: Please select a preloaded scenario or upload a custom DB file first.";
         return;
     }
+    
+    // Disable button to prevent double-execution
+    btn.disabled = true;
+    btn.textContent = "Executing Ingestion Pipeline B... Please wait...";
+    btn.classList.add('opacity-50', 'cursor-not-allowed');
     
     resultBox.classList.remove('hidden');
     resultBox.classList.add('bg-slate-900', 'text-slate-400');
@@ -316,7 +337,7 @@ async function runPipelineB() {
             
             // Clear inputs
             fileInput.value = "";
-            document.getElementById('filename-b').innerHTML = `<span class="font-semibold">Click to upload</span> or drag and drop`;
+            document.getElementById('filename-b').innerHTML = `<span class="font-semibold">Click to upload</span> or drag and drop custom .db file`;
         } else {
             resultBox.classList.add('bg-rose-500/10', 'text-rose-400', 'border', 'border-rose-500/20');
             resultBox.textContent = data.detail || data.message || "Pipeline B execution failed. Telemetry reported an incident.";
@@ -324,6 +345,11 @@ async function runPipelineB() {
     } catch (err) {
         resultBox.className = "text-xs rounded-lg p-3 bg-rose-500/10 text-rose-400 border border-rose-500/20 mt-2";
         resultBox.textContent = "Error executing pipeline: " + err.message;
+    } finally {
+        // Re-enable button
+        btn.disabled = false;
+        btn.textContent = "Execute Ingestion Pipeline B";
+        btn.classList.remove('opacity-50', 'cursor-not-allowed');
     }
     
     // Refresh lists immediately
