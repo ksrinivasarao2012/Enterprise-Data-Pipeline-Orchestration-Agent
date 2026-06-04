@@ -157,6 +157,14 @@ class RemediationService:
     def _handle_quarantine(cls, incident_id: str, pipeline_id: str, params: dict) -> None:
         """Simulates isolating bad records to unblock the rest of the ingestion queue."""
         logger.info("Extracting contaminated elements to isolated target table", incident_id=incident_id)
+        
+        from src.incidents.incident_repository import IncidentRepository
+        incident = IncidentRepository.get_incident(incident_id)
+        run_id = incident.run_id if incident else None
+        
+        if run_id:
+            PipelineService.update_run_status(run_id, PipelineStatus.HEALED)
+            
         IncidentManager.transition_to(incident_id, IncidentStatus.RESOLVED)
         AuditService.log_event(incident_id, "ACTUATOR", "Poisoned data payload isolated. Balance data unblocked.")
 
