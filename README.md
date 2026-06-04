@@ -460,6 +460,16 @@ Open the dashboard and run these testing scenarios:
 
 ---
 
+### LLM Quota & Rate Limits
+
+This project utilizes the **Google Gemini 2.5 Flash** (`gemini-2.5-flash`) model for multi-agent reasoning, self-healing runbook execution, and code/SQL repair. Under the Gemini API free tier, the following rate limits apply:
+- **Requests Per Minute (RPM)**: 15 to 30 RPM
+- **Requests Per Day (RPD)**: 1,500 RPD
+
+If these thresholds are exceeded, the API returns a `RESOURCE_EXHAUSTED` (HTTP 429) error, and the platform will gracefully transition the active incident status to `ESCALATED` to notify human operators.
+
+---
+
 ## License
 
 This project is provided for educational and research purposes.
