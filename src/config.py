@@ -91,15 +91,12 @@ def generate_error_signature(pipeline_id: str, exception_type: str, missing_key:
 
 def get_active_pipeline_config(pipeline_id: str) -> dict:
     """Queries verified active config overrides and returns a merged dictionary."""
-    import sqlite3
+    from src.database import get_db_connection
     import json
-    paths = get_database_paths()
-    state_db = paths["state_db"]
     
     merged_config = {}
     try:
-        with sqlite3.connect(state_db) as conn:
-            conn.execute("PRAGMA busy_timeout = 5000;")
+        with get_db_connection("state_db") as conn:
             cursor = conn.cursor()
             query = """
                 SELECT config_json FROM pipeline_configs pc
@@ -125,15 +122,12 @@ def get_active_pipeline_config(pipeline_id: str) -> dict:
 
 def save_pipeline_config_draft(pipeline_id: str, error_signature: str, config: dict) -> int:
     """Persists a new tentative config draft (incrementing version) and returns the version."""
-    import sqlite3
+    from src.database import get_db_connection
     import json
     from datetime import datetime, timezone
-    paths = get_database_paths()
-    state_db = paths["state_db"]
     
     try:
-        with sqlite3.connect(state_db) as conn:
-            conn.execute("PRAGMA busy_timeout = 5000;")
+        with get_db_connection("state_db") as conn:
             cursor = conn.cursor()
             
             # Find next version number
@@ -162,13 +156,10 @@ def save_pipeline_config_draft(pipeline_id: str, error_signature: str, config: d
 
 def verify_pipeline_config(pipeline_id: str, error_signature: str, version: int) -> None:
     """Marks a tentative config version as verified active."""
-    import sqlite3
-    paths = get_database_paths()
-    state_db = paths["state_db"]
+    from src.database import get_db_connection
     
     try:
-        with sqlite3.connect(state_db) as conn:
-            conn.execute("PRAGMA busy_timeout = 5000;")
+        with get_db_connection("state_db") as conn:
             cursor = conn.cursor()
             cursor.execute(
                 "UPDATE pipeline_configs SET is_verified = 1 WHERE pipeline_id = ? AND error_signature = ? AND version = ?",
@@ -180,13 +171,10 @@ def verify_pipeline_config(pipeline_id: str, error_signature: str, version: int)
 
 def delete_pipeline_config_version(pipeline_id: str, error_signature: str, version: int) -> None:
     """Deletes a specific draft config version (for rollback)."""
-    import sqlite3
-    paths = get_database_paths()
-    state_db = paths["state_db"]
+    from src.database import get_db_connection
     
     try:
-        with sqlite3.connect(state_db) as conn:
-            conn.execute("PRAGMA busy_timeout = 5000;")
+        with get_db_connection("state_db") as conn:
             cursor = conn.cursor()
             cursor.execute(
                 "DELETE FROM pipeline_configs WHERE pipeline_id = ? AND error_signature = ? AND version = ?",
@@ -198,12 +186,9 @@ def delete_pipeline_config_version(pipeline_id: str, error_signature: str, versi
 
 def reset_pipeline_configs(pipeline_id: str) -> None:
     """Wipes all verified active config overrides for a pipeline to restore default schema rules."""
-    import sqlite3
-    paths = get_database_paths()
-    state_db = paths["state_db"]
+    from src.database import get_db_connection
     try:
-        with sqlite3.connect(state_db) as conn:
-            conn.execute("PRAGMA busy_timeout = 5000;")
+        with get_db_connection("state_db") as conn:
             cursor = conn.cursor()
             cursor.execute("DELETE FROM pipeline_configs WHERE pipeline_id = ?", (pipeline_id,))
             conn.commit()

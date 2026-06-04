@@ -1,22 +1,14 @@
 # src/services/audit_service.py
-import sqlite3
-import os
 import uuid
 from datetime import datetime, timezone
 from typing import Optional # Fix #1: Resolved missing typing dependency import
-
-from src.config import get_database_paths
-DB_PATH = get_database_paths()["state_db"]
+from src.database import get_db_connection
 
 class AuditService:
     @staticmethod
     def _get_connection():
-        os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
-        conn = sqlite3.connect(DB_PATH)
-        # Fix #3: Tuning the engine context parameters for rapid event streaming
-        conn.execute("PRAGMA journal_mode=WAL;")
-        conn.execute("PRAGMA busy_timeout = 5000;")
-        return conn
+        return get_db_connection("state_db")
+
 
     @classmethod
     def log_event(cls, ref_id: Optional[str], component: str, message: str) -> str:

@@ -1,8 +1,6 @@
 # database/init_db.py
-import sqlite3
 import os
-
-# --- Define the three separate physical data tiers ---
+from src.database import get_db_connection, is_postgres
 from src.config import get_database_paths
 paths = get_database_paths()
 STATE_DB_PATH = paths["state_db"]
@@ -10,19 +8,21 @@ OPERATIONAL_DB_PATH = paths["operational_db"]
 ANALYTICS_DB_PATH = paths["analytics_db"]
 BASE_DIR = os.path.dirname(STATE_DB_PATH)
 
-def _apply_performance_pragmas(conn: sqlite3.Connection):
+def _apply_performance_pragmas(conn):
     """Enforces optimal transactional properties across all engine scopes."""
-    conn.execute("PRAGMA foreign_keys = ON;")
-    conn.execute("PRAGMA journal_mode = WAL;")
-    conn.execute("PRAGMA busy_timeout = 5000;")
+    if not is_postgres():
+        conn.execute("PRAGMA foreign_keys = ON;")
+        conn.execute("PRAGMA journal_mode = WAL;")
+        conn.execute("PRAGMA busy_timeout = 5000;")
 
 def initialize_database():
-    os.makedirs(BASE_DIR, exist_ok=True)
+    if not is_postgres():
+        os.makedirs(BASE_DIR, exist_ok=True)
 
     # ==========================================
     # TIER 1: PLATFORM STATE CONTROL PLANE DB
     # ==========================================
-    with sqlite3.connect(STATE_DB_PATH) as conn:
+    with get_db_connection("state_db") as conn:
         _apply_performance_pragmas(conn)
         cursor = conn.cursor()
         
@@ -83,11 +83,12 @@ def initialize_database():
         """)
         
         # Performance Index Matrix
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_pipeline_runs_status ON pipeline_runs(status);")
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_incidents_status ON incidents(status);")
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_incidents_run_id ON incidents(run_id);")
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_incidents_pipeline_id_severity ON incidents(pipeline_id, severity);")
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_audit_ref_id ON audit_logs(ref_id);")
+        if not is_postgres():
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_pipeline_runs_status ON pipeline_runs(status);")
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_incidents_status ON incidents(status);")
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_incidents_run_id ON incidents(run_id);")
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_incidents_pipeline_id_severity ON incidents(pipeline_id, severity);")
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_audit_ref_id ON audit_logs(ref_id);")
         conn.commit()
     from src.telemetry.logger import get_pipeline_logger
     logger = get_pipeline_logger("init_db")
@@ -96,7 +97,7 @@ def initialize_database():
     # ==========================================
     # TIER 2: OPERATIONAL TRANSACTIONAL DATA STORE
     # ==========================================
-    with sqlite3.connect(OPERATIONAL_DB_PATH) as conn:
+    with get_db_connection("operational_db") as conn:
         _apply_performance_pragmas(conn)
         cursor = conn.cursor()
         
@@ -105,7 +106,7 @@ def initialize_database():
             CREATE TABLE IF NOT EXISTS customers (
                 customer_id TEXT PRIMARY KEY,
                 name TEXT NOT NULL,
-                email TEXT UNIQUE NOT NULL,
+                email TEXT NOT NULL,
                 country TEXT,
                 signup_date TEXT NOT NULL,
                 status TEXT DEFAULT 'ACTIVE',
@@ -147,7 +148,7 @@ def initialize_database():
     # ==========================================
     # TIER 3: TARGET ANALYTICS STAGING WAREHOUSE
     # ==========================================
-    with sqlite3.connect(ANALYTICS_DB_PATH) as conn:
+    with get_db_connection("analytics_db") as conn:
         _apply_performance_pragmas(conn)
         cursor = conn.cursor()
         

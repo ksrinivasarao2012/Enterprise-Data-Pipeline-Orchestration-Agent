@@ -8,6 +8,7 @@ from typing import Optional, Dict, Any
 # Resolve operational & analytics database paths cleanly
 from src.config import get_database_paths
 from src.telemetry.logger import get_pipeline_logger
+from src.database import get_db_connection, is_postgres
 
 logger = get_pipeline_logger("pipeline_db")
 paths = get_database_paths()
@@ -41,16 +42,30 @@ class PipelineB:
             os.makedirs(BASE_DIR, exist_ok=True)
             
             # 2. Check if operational database is initialized and contains source tables
-            with sqlite3.connect(run_db_path) as conn:
+            use_pg = is_postgres() and not op_db_path
+            
+            if use_pg:
+                conn_op = get_db_connection("operational_db")
+            else:
+                conn_op = sqlite3.connect(run_db_path)
+                
+            with conn_op as conn:
                 cursor = conn.cursor()
                 
                 check_table = "device_telemetry"
                 if simulate_failure_type == "MISSING_TABLE":
                     check_table = "non_existent_telemetry_table"
+                
+                if use_pg:
+                    cursor.execute("SELECT table_name FROM information_schema.tables WHERE table_schema='public' AND table_name=%s", (check_table,))
+                else:
+                    cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name=?", (check_table,))
                     
-                cursor.execute(f"SELECT name FROM sqlite_master WHERE type='table' AND name=?", (check_table,))
                 if not cursor.fetchone():
-                    raise sqlite3.OperationalError(f"Operational source table '{check_table}' does not exist on disk.")
+                    if use_pg:
+                        raise ValueError(f"Operational source table '{check_table}' does not exist on disk.")
+                    else:
+                        raise sqlite3.OperationalError(f"Operational source table '{check_table}' does not exist on disk.")
 
             # 3. Handle programmatically simulated referential integrity failures
             if simulate_failure_type == "REFERENTIAL_INTEGRITY":
@@ -79,20 +94,32 @@ class PipelineB:
                 telemetry_query = "SELECT FROM WHERE device_id GROUP BY (syntax error simulation)"
 
             # Execute Extractor query
-            with sqlite3.connect(run_db_path) as conn:
+            if use_pg:
+                conn_op_exec = get_db_connection("operational_db")
+            else:
+                conn_op_exec = sqlite3.connect(run_db_path)
+                
+            with conn_op_exec as conn:
                 cursor = conn.cursor()
                 
                 try:
                     cursor.execute(telemetry_query)
                     metrics_rows = cursor.fetchall()
-                except sqlite3.OperationalError as sq_err:
+                except Exception as sq_err:
                     try:
-                        cursor.execute("PRAGMA table_info(device_telemetry)")
-                        columns = [row[1] for row in cursor.fetchall()]
+                        if use_pg:
+                            cursor.execute("SELECT column_name FROM information_schema.columns WHERE table_name='device_telemetry'")
+                            columns = [row[0] for row in cursor.fetchall()]
+                        else:
+                            cursor.execute("PRAGMA table_info(device_telemetry)")
+                            columns = [row[1] for row in cursor.fetchall()]
                         schema_info = f" Available columns in device_telemetry: {columns}."
                     except Exception:
                         schema_info = ""
-                    raise sqlite3.OperationalError(f"Database Query Parse Error: {str(sq_err)}.{schema_info} Query: {telemetry_query}")
+                    if use_pg:
+                        raise ValueError(f"Database Query Parse Error: {str(sq_err)}.{schema_info} Query: {telemetry_query}")
+                    else:
+                        raise sqlite3.OperationalError(f"Database Query Parse Error: {str(sq_err)}.{schema_info} Query: {telemetry_query}")
 
                 # Check for actual database referential integrity violations
                 for row in metrics_rows:
@@ -101,8 +128,7 @@ class PipelineB:
 
             # 5. Load aggregate records into analytics.db staging target tables
             records_written = 0
-            with sqlite3.connect(ANALYTICS_DB_PATH) as conn:
-                conn.execute("PRAGMA busy_timeout = 5000;")
+            with get_db_connection("analytics_db") as conn:
                 cursor = conn.cursor()
                 
                 for r in metrics_rows:

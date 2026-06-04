@@ -10,6 +10,7 @@ from typing import Optional, Dict
 # Resolve operational database path cleanly
 from src.config import get_database_paths, get_active_pipeline_config, generate_error_signature
 from src.telemetry.logger import get_pipeline_logger
+from src.database import get_db_connection
 
 logger = get_pipeline_logger("pipeline_csv")
 paths = get_database_paths()
@@ -141,8 +142,7 @@ class PipelineA:
             records_written = 0
             problematic_rows = []
             
-            with sqlite3.connect(OPERATIONAL_DB_PATH) as conn:
-                conn.execute("PRAGMA busy_timeout = 5000;")
+            with get_db_connection("operational_db") as conn:
                 cur = conn.cursor()
                 seen_ids_in_batch = set()
                 
@@ -204,8 +204,7 @@ class PipelineA:
                         f"Data Quality Violation: Field formatting errors. Total problematic rows: {num}. Details: {details}"
                     )
             
-            with sqlite3.connect(OPERATIONAL_DB_PATH) as conn:
-                conn.execute("PRAGMA busy_timeout = 5000;")
+            with get_db_connection("operational_db") as conn:
                 cur = conn.cursor()
                 for item in raw_data:
                     p_id = item[schema_mapping["id_col"]]

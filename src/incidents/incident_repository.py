@@ -1,22 +1,15 @@
 # src/incidents/incident_repository.py
-import sqlite3
-import os
 import json
 from datetime import datetime, timezone
 from typing import Optional
 from src.models.schemas import IncidentSchema, IncidentStatus, SeverityLevel, IncidentCategory
-from src.config import get_database_paths
-DB_PATH = get_database_paths()["state_db"]
+from src.database import get_db_connection
 
 class IncidentRepository:
     @staticmethod
     def _get_connection():
-        os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
-        conn = sqlite3.connect(DB_PATH)
-        # Fix #2: Enforce high concurrency parameters on the SQLite connection
-        conn.execute("PRAGMA journal_mode=WAL;")
-        conn.execute("PRAGMA busy_timeout = 5000;")
-        return conn
+        return get_db_connection("state_db")
+
 
     @classmethod
     def create_incident(cls, incident: IncidentSchema) -> None:

@@ -1,22 +1,13 @@
 # src/services/pipeline_service.py
-import sqlite3
-import os
 from datetime import datetime, timezone
 from src.models.schemas import PipelineStatus, PipelineRunSchema
-
-# Explicitly isolate the control plane tier state database path
-from src.config import get_database_paths
-STATE_DB_PATH = get_database_paths()["state_db"]
+from src.database import get_db_connection
 
 class PipelineService:
     @staticmethod
     def _get_connection():
-        os.makedirs(os.path.dirname(STATE_DB_PATH), exist_ok=True)
-        conn = sqlite3.connect(STATE_DB_PATH)
-        # Enforce consistent concurrency rules across all service domains
-        conn.execute("PRAGMA journal_mode=WAL;")
-        conn.execute("PRAGMA busy_timeout = 5000;")
-        return conn
+        return get_db_connection("state_db")
+
 
     @classmethod
     def start_run(cls, run_id: str, pipeline_id: str) -> PipelineRunSchema:

@@ -25,6 +25,7 @@ from src.incidents.incident_repository import IncidentRepository
 from src.services.remediation_service import RemediationService
 from src.telemetry.logger import get_pipeline_logger
 from src.config import get_database_paths, reset_pipeline_configs
+from src.database import get_db_connection
 
 logger = get_pipeline_logger("control_plane")
 
@@ -188,7 +189,7 @@ async def get_metrics():
     investigating_count = 0
     escalated_count = 0
     try:
-        with sqlite3.connect(paths["state_db"]) as conn:
+        with get_db_connection("state_db") as conn:
             cursor = conn.cursor()
             cursor.execute("""
                 SELECT COUNT(*) FROM pipeline_runs 
@@ -390,14 +391,14 @@ async def clear_history():
     paths = get_database_paths()
     try:
         # Clear state database tables
-        with sqlite3.connect(paths["state_db"]) as conn:
+        with get_db_connection("state_db") as conn:
             conn.execute("DELETE FROM incidents")
             conn.execute("DELETE FROM pipeline_runs")
             conn.execute("DELETE FROM audit_logs")
             conn.execute("DELETE FROM pipeline_configs")
             conn.commit()
         # Clear operational database tables
-        with sqlite3.connect(paths["operational_db"]) as conn:
+        with get_db_connection("operational_db") as conn:
             conn.execute("DELETE FROM customers")
             conn.commit()
         # Clear human escalation log file

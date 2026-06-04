@@ -17,3 +17,5 @@ structlog==24.4.0
 python-dotenv==1.0.1
 pyyaml>=6.0
 aiofiles>=23.0.0
+pg8000>=1.30.1
+
