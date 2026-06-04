@@ -11,7 +11,6 @@ from src.models.schemas import (
 from src.services.pipeline_service import PipelineService
 from src.services.audit_service import AuditService
 from src.incidents.incident_manager import IncidentManager
-from src.orchestration.graph import compiled_graph
 from src.incidents.incident_repository import IncidentRepository
 from src.services.remediation_service import RemediationService
 from src.telemetry.logger import get_pipeline_logger
@@ -54,6 +53,9 @@ def run_agentic_healing_workflow(incident_id: str):
     source_path = telemetry_metadata.get("source_path")
 
     logger.info("Launching LangGraph Core Engine", incident_id=incident_id)
+    
+    # Lazy import to prevent loading heavy orchestration/LLM modules at API startup
+    from src.orchestration.graph import compiled_graph
     
     # 3. Stream the execution path context across nodes
     final_state = compiled_graph.invoke(initial_state)

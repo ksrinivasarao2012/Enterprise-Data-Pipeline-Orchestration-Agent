@@ -164,15 +164,34 @@ Incidents are dynamically classified and prioritized using a combination of dete
 ## Execution & Getting Started
 
 ### 1. Prepare Your Environment
-Create and activate your Python virtual environment, then install dependencies:
+Create and activate your Python virtual environment, then install dependencies. We highly recommend using **`uv`** as the project is configured with a modern `pyproject.toml` and `uv.lock` setup.
 
-#### Create the Virtual Environment:
+#### Method A: Using `uv` (Recommended & Faster)
+If you have `uv` installed, run:
+```powershell
+# Create the environment and install all dependencies (including local dashboard/ETL/test extras)
+uv sync --all-extras
+```
+To activate the virtual environment:
+* **For PowerShell**:
+  ```powershell
+  .venv\Scripts\activate.ps1
+  ```
+* **For Command Prompt (cmd.exe)**:
+  ```cmd
+  .venv\Scripts\activate.bat
+  ```
+
+#### Method B: Using Standard `venv` & `pip` (Fallback)
+If you prefer standard Python tools:
+
+##### Create the Virtual Environment:
 ```powershell
 python -m venv venv
 ```
 This creates a folder named `venv` in your project root containing the isolated environment.
 
-#### Activate the Virtual Environment:
+##### Activate the Virtual Environment:
 Depending on your terminal environment:
 * **For PowerShell**:
   ```powershell
@@ -184,7 +203,7 @@ Depending on your terminal environment:
   venv\Scripts\activate.bat
   ```
 
-#### Install the Dependencies:
+##### Install the Dependencies:
 Once activated (indicated by `(venv)` prepended to your command prompt), upgrade `pip` and install the package requirements:
 ```powershell
 python -m pip install --upgrade pip

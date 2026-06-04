@@ -9,6 +9,7 @@ __pycache__/
 .env
 .env.local
 .env.*.local
+uv.lock
 .venv/
 venv/
 env/

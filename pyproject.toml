@@ -6,20 +6,24 @@ readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
     "fastapi==0.115.0",
-    "uvicorn[standard]==0.30.1",
     "pydantic==2.9.2",
     "pydantic-settings==2.5.2",
     "requests==2.32.3",
-    "prefect==3.0.3",
-    "great-expectations==0.18.22",
     "structlog==24.4.0",
     "google-genai>=0.1.0",
     "langgraph>=0.2.32",
     "langchain-core>=0.3.10",
     "langchain-google-genai>=2.0.0",
+    "python-dotenv==1.0.1"
+]
+
+[project.optional-dependencies]
+local = [
+    "uvicorn[standard]==0.30.1",
+    "prefect==3.0.3",
+    "great-expectations==0.18.22",
     "streamlit==1.39.0",
     "watchdog==4.0.2",
-    "python-dotenv==1.0.1",
     "pytest==7.4.2"
 ]
 
