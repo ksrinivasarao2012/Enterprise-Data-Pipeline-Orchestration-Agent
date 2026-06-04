@@ -28,14 +28,6 @@ from src.config import get_database_paths, reset_pipeline_configs
 
 logger = get_pipeline_logger("control_plane")
 
-# Initialize database on module import (critical for Vercel where ASGI lifespan is bypassed)
-try:
-    from database.init_db import initialize_database
-    initialize_database()
-    logger.info("Database initialized successfully on module import")
-except Exception as e:
-    logger.error("Database initialization failed on module import", error=str(e))
-
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Initialize database tables on startup (critical for Vercel cold starts)."""
@@ -52,6 +44,23 @@ app = FastAPI(
     version="1.0.0",
     lifespan=lifespan
 )
+
+# Initialize database on the first HTTP request (fully runtime-safe for Vercel)
+_db_initialized = False
+
+@app.middleware("http")
+async def db_init_middleware(request: Request, call_next):
+    global _db_initialized
+    if not _db_initialized:
+        try:
+            from database.init_db import initialize_database
+            initialize_database()
+            logger.info("Database initialized successfully via middleware on first request")
+            _db_initialized = True
+        except Exception as e:
+            logger.error("Database initialization failed in middleware", error=str(e))
+    return await call_next(request)
+
 
 
 
