@@ -140,9 +140,26 @@ def get_db_connection(db_key="state_db"):
     if is_postgres():
         try:
             import pg8000
-            # Parse connection string into pg8000 parameters
-            # postgresql://username:password@hostname:port/database
-            conn = pg8000.connect(dsn=POSTGRES_URL)
+            import ssl
+            from urllib.parse import urlparse
+            
+            result = urlparse(POSTGRES_URL)
+            username = result.username
+            password = result.password
+            database = result.path[1:]
+            hostname = result.hostname
+            port = result.port
+            
+            ssl_context = ssl.create_default_context()
+            
+            conn = pg8000.connect(
+                user=username,
+                password=password,
+                host=hostname,
+                port=port if port else 5432,
+                database=database,
+                ssl_context=ssl_context
+            )
             return PostgresConnectionWrapper(conn)
         except Exception as e:
             logger.error("Failed to connect to Postgres, falling back to SQLite", error=str(e))
