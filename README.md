@@ -196,8 +196,7 @@ Validation errors are extracted per-row from `ValidationError.errors()`, strippe
 │   │
 │   ├── pipeline/
 │   │   ├── json_pipeline.py        # Pipeline A implementation
-│   │   ├── db_pipeline.py          # Pipeline B implementation
-│   │   └── etl_engine.py           # Prefect-based ETL pipeline (standalone mode)
+│   │   └── db_pipeline.py          # Pipeline B implementation
 │   │
 │   ├── services/
 │   │   ├── audit_service.py        # Centralized audit logging service

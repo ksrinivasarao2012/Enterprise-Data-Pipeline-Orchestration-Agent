@@ -15,6 +15,10 @@ from src.telemetry.logger import get_pipeline_logger
 logger = get_pipeline_logger("remediation_service")
 
 class RemediationService:
+    # Max healing incidents allowed per pipeline run before the actuator gives up
+    # and escalates, guarding against runaway self-healing recursion.
+    MAX_HEAL_ATTEMPTS = 4
+
     @classmethod
     def validate_fix_schema(cls, pipeline_id: str, params: dict) -> bool:
         """Validates proposed configuration overrides against structural whitelists and injection guards."""
@@ -56,7 +60,7 @@ class RemediationService:
                     logger.warning("Validation rejected: Key not in allowed parameter whitelist", pipeline_id=pipeline_id, key=key)
                     return False
             
-            # Value check: only allow letters, numbers, underscores (valid JSON/CSV column identifier) for Pipeline A
+            # Value check: only allow letters, numbers, underscores (valid JSON column identifier) for Pipeline A
             if pipeline_id != "PIPELINE_B":
                 if key == "flatten_root_dict":
                     if not isinstance(val, (bool, str)) or str(val).lower() not in ["true", "false"]:
@@ -172,7 +176,24 @@ class RemediationService:
     def _handle_reconfigure(cls, incident_id: str, pipeline_id: str, params: dict, error_signature: str, source_path: str | None = None) -> None:
         """Alters execution environmental properties on-the-fly and reruns to heal."""
         logger.debug("Pre-application security & schema validation check", incident_id=incident_id)
-        
+
+        # Circuit breaker: bound the number of healing attempts per pipeline run so a
+        # pathological case (e.g. two column drifts that would otherwise ping-pong)
+        # can never loop indefinitely or burn unbounded LLM quota. Once a run has
+        # accumulated too many incidents, escalate to a human instead of retrying.
+        from src.incidents.incident_repository import IncidentRepository
+        incident = IncidentRepository.get_incident(incident_id)
+        run_id = incident.run_id if incident else None
+        if run_id:
+            attempts = sum(1 for i in IncidentRepository.get_all_incidents() if i.run_id == run_id)
+            if attempts > cls.MAX_HEAL_ATTEMPTS:
+                logger.warning(
+                    "Healing attempt cap exceeded for run; escalating",
+                    run_id=run_id, incident_id=incident_id, attempts=attempts, cap=cls.MAX_HEAL_ATTEMPTS,
+                )
+                cls._handle_escalation(incident_id)
+                return
+
         if not cls.validate_fix_schema(pipeline_id, params):
             logger.warning("Proposed configuration rejected during validation; escalating", incident_id=incident_id)
             cls._handle_escalation(incident_id)
@@ -182,10 +203,7 @@ class RemediationService:
         draft_version = save_pipeline_config_draft(pipeline_id, error_signature, params)
         logger.info("Draft config saved; running dry-run verification", pipeline_id=pipeline_id, draft_version=draft_version)
 
-        from src.incidents.incident_repository import IncidentRepository
-        incident = IncidentRepository.get_incident(incident_id)
         original_filename = incident.telemetry_metadata.get("original_filename") if incident and incident.telemetry_metadata else None
-        run_id = incident.run_id if incident else None
 
         try:
             if pipeline_id == "PIPELINE_A":
@@ -208,8 +226,19 @@ class RemediationService:
             if result is not None:
                 logger.info("Pipeline dry-run succeeded; committing config version", pipeline_id=pipeline_id, draft_version=draft_version)
                 verify_pipeline_config(pipeline_id, error_signature, draft_version)
+                if run_id:
+                    PipelineService.update_run_status(run_id, PipelineStatus.HEALED)
                 IncidentManager.transition_to(incident_id, IncidentStatus.RESOLVED)
                 AuditService.log_event(incident_id, "ACTUATOR", f"Configuration version {draft_version} verified. Pipeline auto-remediated and successfully processed {result} records.")
+                # Full ingestion succeeded — restore baseline overrides so the next
+                # (possibly healthy) file is not forced through this run's schema mapping.
+                # The is_new_error branch deliberately skips this: a partial heal must
+                # keep its committed override for the following run to build on.
+                try:
+                    from src.config import reset_pipeline_configs
+                    reset_pipeline_configs(pipeline_id)
+                except Exception:
+                    pass
             else:
                 raise RuntimeWarning("Dry-run execution returned secondary failure.")
         except KeyError as ke:
@@ -230,6 +259,8 @@ class RemediationService:
             if is_new_error:
                 logger.info("Dry-run hit new KeyError indicating original issue resolved; committing override", new_missing_key=new_missing_key, error_signature=error_signature)
                 verify_pipeline_config(pipeline_id, error_signature, draft_version)
+                if run_id:
+                    PipelineService.update_run_status(run_id, PipelineStatus.HEALED)
                 IncidentManager.transition_to(incident_id, IncidentStatus.RESOLVED)
                 AuditService.log_event(incident_id, "ACTUATOR", f"Configuration version {draft_version} verified (resolved original issue). Committing.")
             else:
