@@ -67,7 +67,7 @@ class SeverityRulesEngine:
                 return SeverityLevel.P2, category
             return SeverityLevel.P2, category
 
-        elif normalized_pipeline == "PIPELINE_A":  # Batch File Ingestion (Customers CSV)
+        elif normalized_pipeline == "PIPELINE_A":  # Batch File Ingestion (Customers JSON)
             if category == IncidentCategory.SCHEMA_DRIFT:
                 return SeverityLevel.P1, category  # Structure mismatch breaks parse engine
             if category == IncidentCategory.DATA_QUALITY:

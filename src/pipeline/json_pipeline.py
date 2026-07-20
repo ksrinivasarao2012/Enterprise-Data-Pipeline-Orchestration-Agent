@@ -13,7 +13,7 @@ from src.config import get_database_paths, get_active_pipeline_config, generate_
 from src.telemetry.logger import get_pipeline_logger
 from src.database import get_db_connection
 
-logger = get_pipeline_logger("pipeline_csv")
+logger = get_pipeline_logger("pipeline_json")
 paths = get_database_paths()
 OPERATIONAL_DB_PATH = paths["operational_db"]
 DEFAULT_JSON_PATH = os.path.join(os.path.dirname(paths["state_db"]), "customers.json")
@@ -316,15 +316,19 @@ class PipelineA:
             else:
                 TelemetryIncidentCreator.register_status(run_id, self.pipeline_id, "SUCCESS")
                 
-            try:
-                from src.config import reset_pipeline_configs
-                reset_pipeline_configs(self.pipeline_id)
-            except Exception as e:
-                logger.warning(
-                    "Failed to reset active overrides",
-                    pipeline_id=self.pipeline_id,
-                    error=str(e),
-                )
+            # Restore baseline overrides only for real (non-dry-run) executions. During a
+            # verification dry-run (throw_on_error=True) the actuator owns the draft-config
+            # lifecycle — resetting here would delete the very draft it is about to verify.
+            if not throw_on_error:
+                try:
+                    from src.config import reset_pipeline_configs
+                    reset_pipeline_configs(self.pipeline_id)
+                except Exception as e:
+                    logger.warning(
+                        "Failed to reset active overrides",
+                        pipeline_id=self.pipeline_id,
+                        error=str(e),
+                    )
             return records_written
         except Exception as e:
             logger.exception(
@@ -333,13 +337,18 @@ class PipelineA:
                 error=str(e),
             )
             TelemetryIncidentCreator.register_status(run_id, self.pipeline_id, "FAILED")
-            TelemetryIncidentCreator.capture_and_report(
-                run_id,
-                self.pipeline_id,
-                e,
-                source_path=json_file_path,
-                original_filename=original_filename,
-            )
+            # During a verification dry-run (throw_on_error=True) the actuator that
+            # invoked us owns recovery. Spawning a nested healing loop here is what
+            # made multi-column drifts recurse forever, ping-ponging between column
+            # fixes. In that context, just raise and let the caller decide.
+            if not throw_on_error:
+                TelemetryIncidentCreator.capture_and_report(
+                    run_id,
+                    self.pipeline_id,
+                    e,
+                    source_path=json_file_path,
+                    original_filename=original_filename,
+                )
             if throw_on_error:
                 raise e
             return None

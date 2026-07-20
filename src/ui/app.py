@@ -31,6 +31,7 @@ with st.expander("Pipeline Ingestion Sandbox (Upload JSON to test Pipeline A)", 
                     conn.execute("DELETE FROM pipeline_runs")
                     conn.execute("DELETE FROM audit_logs")
                     conn.execute("DELETE FROM pipeline_configs")
+                    conn.execute("DELETE FROM quarantined_records")
                     conn.commit()
                 # Clear operational database tables
                 with sqlite3.connect(paths["operational_db"]) as conn:
