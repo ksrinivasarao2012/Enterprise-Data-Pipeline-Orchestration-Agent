@@ -39,7 +39,7 @@ The platform is split into three core logical tiers: the **Data Ingestion Layer*
 | (Customer JSON Files) |       | SQLite / Neon Postgres|       | (Upload Local DB File)|
 +-----------+-----------+       +-----------------------+       +-----------+-----------+
             |                                                               |
-            | Sends Telemetry                                              | Sends Telemetry
+            | Sends Telemetry                                               | Sends Telemetry
             v                                                               v
 +-----------+---------------------------------------------------------------+-----------+
 |                    Control Plane Telemetry Gateway (FastAPI)                          |
