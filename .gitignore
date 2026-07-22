@@ -76,3 +76,16 @@ pylintrc
 # --- OS-specific ---
 .DS_Store
 Thumbs.db
+
+# --- LaTeX Documents & Build Artifacts ---
+*.tex
+*.aux
+*.out
+*.toc
+*.fls
+*.fdb_latexmk
+*.synctex.gz
+*.bbl
+*.blg
+*.zip
+
