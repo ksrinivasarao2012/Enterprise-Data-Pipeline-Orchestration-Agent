@@ -29,8 +29,8 @@ The platform is split into three core logical tiers: the **Data Ingestion Layer*
 
 ```
                        +------------------------------------------+
-                       |   Web Operations Dashboard (HTML/JS)     |
-                       |   or Streamlit Console (Local Dev)        |
+                       |   Web Operations Dashboard (HTML/JS/CSS) |
+                       |   Served directly via FastAPI Web Server  |
                        +--------------------+---------------------+
                                             |
                                             v
