@@ -31,33 +31,33 @@ The platform is split into three core logical tiers: the **Data Ingestion Layer*
                        +------------------------------------------+
                        |   Web Operations Dashboard (HTML/JS)     |
                        |   or Streamlit Console (Local Dev)        |
-                       +-------------------+-----------------------+
-                                           |
-                                           v
-+-----------------------+       +----------+-----------+       +-----------------------+
-| Ingestion Pipeline A  | ----> | Operational DB       |       | Pipeline B (DB-to-DB) |
+                       +--------------------+---------------------+
+                                            |
+                                            v
++-----------------------+       +-----------+-----------+       +-----------------------+
+| Ingestion Pipeline A  | ----> | Operational DB        |       | Pipeline B (DB-to-DB) |
 | (Customer JSON Files) |       | SQLite / Neon Postgres|       | (Upload Local DB File)|
 +-----------+-----------+       +-----------------------+       +-----------+-----------+
             |                                                               |
             | Sends Telemetry                                              | Sends Telemetry
             v                                                               v
 +-----------+---------------------------------------------------------------+-----------+
-|                    Control Plane Telemetry Gateway (FastAPI)                           |
-|                Local: localhost:8000  |  Cloud: Vercel Serverless                     |
-+----------------------------------------------+----------------------------------------+
-                                               | In-Process Trigger
-                                               v
-+----------------------------------------------+----------------------------------------+
-|                    Agentic Remediation Loop (LangGraph)                                |
-| [Monitor Agent] --> [Classifier Agent] --> [RCA Agent] --> [Recovery Actuator]         |
-+----------------------------------------------+----------------------------------------+
-                                               |
-                                               v
-                                  +------------+-----------+
-                                  | Dry-Run Verification   |
-                                  | ✓ Commit & Resolve     |
-                                  | ✗ Rollback & Escalate  |
-                                  +------------------------+
+|                    Control Plane Telemetry Gateway (FastAPI)                          |
+|                Local: localhost:8000  |  Cloud: Vercel Serverless                    |
++-------------------------------------------+-------------------------------------------+
+                                            | In-Process Trigger
+                                            v
++-------------------------------------------+-------------------------------------------+
+|                    Agentic Remediation Loop (LangGraph)                               |
+| [Monitor Agent] --> [Classifier Agent] --> [RCA Agent] --> [Recovery Actuator]        |
++-------------------------------------------+-------------------------------------------+
+                                            |
+                                            v
+                               +------------+------------+
+                               |   Dry-Run Verification  |
+                               |   ✓ Commit & Resolve    |
+                               |   ✗ Rollback & Escalate |
+                               +-------------------------+
 ```
 
 ### 1. Data Plane Pipelines
