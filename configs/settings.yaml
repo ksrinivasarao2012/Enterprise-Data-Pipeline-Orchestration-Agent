@@ -7,7 +7,7 @@ database:
   url: "sqlite:///database/platform_state.db"
 
 llm:
-  model_name: "gemini-2.5-flash"
+  model_name: "gemini-3.5-flash-lite"
   temperature: 0.0
 
 recovery:
@@ -26,3 +26,11 @@ recovery:
         name_col: ["title", "name", "product_name", "label"]
         price_col: ["price", "cost", "price_usd", "value", "unit_price", "rate"]
         stock_col: ["stock", "inventory", "quantity", "qty"]
+      # SQL guard: the ONLY names Gemini may use when a column is missing from device_telemetry.
+      # Any other replacement is escalated to a human. Add real renames here as you meet them.
+      sql_column_aliases:
+        status_code: ["http_status", "status", "response_code", "http_code"]
+        response_time: ["latency", "latency_ms", "response_ms", "duration_ms"]
+        device_id: ["device", "dev_id", "device_uuid"]
+        log_id: ["event_id", "log_uuid"]
+        timestamp: ["ts", "event_time", "created_at"]

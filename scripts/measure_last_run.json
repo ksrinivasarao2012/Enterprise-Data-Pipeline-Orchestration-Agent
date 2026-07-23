@@ -1,0 +1,307 @@
+{
+  "meta": {
+    "date": "2026-10-09",
+    "model": "gemini-3.5-flash-lite",
+    "where": "real local server, real Gemini"
+  },
+  "runs": [
+    [
+      {
+        "case": "case_healthy.json",
+        "pipe": "a",
+        "seconds": 0.148,
+        "result": "success",
+        "held": 0,
+        "components": null,
+        "gemini_calls": 0,
+        "incident_id": null,
+        "blocked_by_guard": false,
+        "response": {
+          "status": "success",
+          "rows_ingested": 10
+        },
+        "why": []
+      },
+      {
+        "case": "case_drift_country.json",
+        "pipe": "a",
+        "seconds": 1.491,
+        "result": "healed",
+        "held": 0,
+        "components": [
+          "TELEMETRY_RECEIVER",
+          "MONITOR_AGENT",
+          "CLASSIFIER_AGENT",
+          "CLASSIFIER_AGENT",
+          "RECOVERY_AGENT",
+          "ACTUATOR",
+          "ACTUATOR"
+        ],
+        "gemini_calls": 0,
+        "incident_id": "inc_81fbfc9e",
+        "blocked_by_guard": false,
+        "response": {
+          "status": "success",
+          "rows_ingested": "Auto-healed",
+          "healed": true
+        },
+        "why": []
+      },
+      {
+        "case": "case_drift_email.json",
+        "pipe": "a",
+        "seconds": 0.85,
+        "result": "healed",
+        "held": 0,
+        "components": [
+          "TELEMETRY_RECEIVER",
+          "MONITOR_AGENT",
+          "CLASSIFIER_AGENT",
+          "CLASSIFIER_AGENT",
+          "RECOVERY_AGENT",
+          "ACTUATOR",
+          "ACTUATOR"
+        ],
+        "gemini_calls": 0,
+        "incident_id": "inc_984438d9",
+        "blocked_by_guard": false,
+        "response": {
+          "status": "success",
+          "rows_ingested": "Auto-healed",
+          "healed": true
+        },
+        "why": []
+      },
+      {
+        "case": "case_drift_id.json",
+        "pipe": "a",
+        "seconds": 0.597,
+        "result": "healed",
+        "held": 0,
+        "components": [
+          "TELEMETRY_RECEIVER",
+          "MONITOR_AGENT",
+          "CLASSIFIER_AGENT",
+          "CLASSIFIER_AGENT",
+          "RECOVERY_AGENT",
+          "ACTUATOR",
+          "ACTUATOR"
+        ],
+        "gemini_calls": 0,
+        "incident_id": "inc_9cb8e6e0",
+        "blocked_by_guard": false,
+        "response": {
+          "status": "success",
+          "rows_ingested": "Auto-healed",
+          "healed": true
+        },
+        "why": []
+      },
+      {
+        "case": "case_drift_multi.json",
+        "pipe": "a",
+        "seconds": 0.806,
+        "result": "healed",
+        "held": 0,
+        "components": [
+          "TELEMETRY_RECEIVER",
+          "MONITOR_AGENT",
+          "CLASSIFIER_AGENT",
+          "CLASSIFIER_AGENT",
+          "RECOVERY_AGENT",
+          "ACTUATOR",
+          "ACTUATOR",
+          "RECOVERY_AGENT",
+          "ACTUATOR",
+          "ACTUATOR"
+        ],
+        "gemini_calls": 0,
+        "incident_id": "inc_bd627c1b",
+        "blocked_by_guard": false,
+        "response": {
+          "status": "success",
+          "rows_ingested": "Auto-healed",
+          "healed": true
+        },
+        "why": []
+      },
+      {
+        "case": "case_invalid_root.json",
+        "pipe": "a",
+        "seconds": 0.622,
+        "result": "healed",
+        "held": 0,
+        "components": [
+          "TELEMETRY_RECEIVER",
+          "MONITOR_AGENT",
+          "CLASSIFIER_AGENT",
+          "CLASSIFIER_AGENT",
+          "RECOVERY_AGENT",
+          "ACTUATOR",
+          "ACTUATOR"
+        ],
+        "gemini_calls": 0,
+        "incident_id": "inc_23948659",
+        "blocked_by_guard": false,
+        "response": {
+          "status": "success",
+          "rows_ingested": "Auto-healed",
+          "healed": true
+        },
+        "why": []
+      },
+      {
+        "case": "case_malformed_syntax.json",
+        "pipe": "a",
+        "seconds": 7.178,
+        "result": "healed",
+        "held": 1,
+        "components": [
+          "TELEMETRY_RECEIVER",
+          "MONITOR_AGENT",
+          "CLASSIFIER_AGENT",
+          "CLASSIFIER_AGENT",
+          "RCA_AGENT",
+          "RECOVERY_AGENT",
+          "ACTUATOR",
+          "ACTUATOR",
+          "ACTUATOR"
+        ],
+        "gemini_calls": 2,
+        "incident_id": "inc_3b2544d8",
+        "blocked_by_guard": false,
+        "response": {
+          "status": "success",
+          "rows_ingested": "Auto-healed",
+          "healed": true
+        },
+        "why": []
+      },
+      {
+        "case": "case_invalid_email.json",
+        "pipe": "a",
+        "seconds": 0.153,
+        "result": "quarantined",
+        "held": 1,
+        "components": null,
+        "gemini_calls": 0,
+        "incident_id": null,
+        "blocked_by_guard": false,
+        "response": {
+          "status": "success",
+          "rows_ingested": 9,
+          "quarantined": true,
+          "quarantined_count": 1
+        },
+        "why": []
+      },
+      {
+        "case": "case_duplicate_ids.json",
+        "pipe": "a",
+        "seconds": 0.13,
+        "result": "quarantined",
+        "held": 1,
+        "components": null,
+        "gemini_calls": 0,
+        "incident_id": null,
+        "blocked_by_guard": false,
+        "response": {
+          "status": "success",
+          "rows_ingested": 9,
+          "quarantined": true,
+          "quarantined_count": 1
+        },
+        "why": []
+      },
+      {
+        "case": "healthy.db",
+        "pipe": "b",
+        "seconds": 0.138,
+        "result": "success",
+        "held": 0,
+        "components": null,
+        "gemini_calls": 0,
+        "incident_id": null,
+        "blocked_by_guard": false,
+        "response": {
+          "status": "success",
+          "rows_ingested": 2
+        },
+        "why": []
+      },
+      {
+        "case": "sql_error.db",
+        "pipe": "b",
+        "seconds": 5.631,
+        "result": "escalated",
+        "held": 0,
+        "components": [
+          "TELEMETRY_RECEIVER",
+          "MONITOR_AGENT",
+          "CLASSIFIER_AGENT",
+          "CLASSIFIER_AGENT",
+          "RCA_AGENT",
+          "RECOVERY_AGENT",
+          "ESCALATION"
+        ],
+        "gemini_calls": 2,
+        "incident_id": "inc_b3395914",
+        "blocked_by_guard": true,
+        "response": {
+          "status": "failure",
+          "detail": "Pipeline execution failed. Telemetry reported an incident."
+        },
+        "why": []
+      },
+      {
+        "case": "referential_integrity.db",
+        "pipe": "b",
+        "seconds": 0.291,
+        "result": "quarantined (all rows)",
+        "held": 1,
+        "components": [
+          "TELEMETRY_RECEIVER",
+          "MONITOR_AGENT",
+          "CLASSIFIER_AGENT",
+          "CLASSIFIER_AGENT",
+          "RECOVERY_AGENT",
+          "ACTUATOR",
+          "ACTUATOR"
+        ],
+        "gemini_calls": 0,
+        "incident_id": "inc_852b900b",
+        "blocked_by_guard": false,
+        "response": {
+          "status": "success",
+          "rows_ingested": 0,
+          "quarantined": true,
+          "quarantined_count": "all"
+        },
+        "why": []
+      },
+      {
+        "case": "missing_table.db",
+        "pipe": "b",
+        "seconds": 2.053,
+        "result": "escalated",
+        "held": 0,
+        "components": [
+          "TELEMETRY_RECEIVER",
+          "MONITOR_AGENT",
+          "CLASSIFIER_AGENT",
+          "CLASSIFIER_AGENT",
+          "RCA_AGENT",
+          "ESCALATION"
+        ],
+        "gemini_calls": 1,
+        "incident_id": "inc_c415132e",
+        "blocked_by_guard": false,
+        "response": {
+          "status": "failure",
+          "detail": "Pipeline execution failed. Telemetry reported an incident."
+        },
+        "why": []
+      }
+    ]
+  ]
+}

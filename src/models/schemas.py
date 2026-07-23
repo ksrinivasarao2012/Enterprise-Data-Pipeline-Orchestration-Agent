@@ -2,7 +2,7 @@
 from datetime import datetime, timezone
 from enum import Enum
 from typing import Optional, Dict, Any
-from pydantic import BaseModel, Field, ConfigDict
+from pydantic import BaseModel, Field, ConfigDict, field_validator
 
 # --- Platform Lifecycle Enums ---
 class PipelineStatus(str, Enum):
@@ -60,8 +60,16 @@ class IncidentSchema(BaseModel):
     root_cause: Optional[str] = None
     recovery_action: Optional[str] = None
     telemetry_metadata: Optional[Any] = None
+    # True when a guard stopped an AI fix (SQL guard, JSON repair check, or Gemini said UNRESOLVABLE).
+    # Stored in the incidents table so the dashboard can filter on it on the server (CHANGES.md section 26).
+    blocked_by_guard: bool = False
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     resolved_at: Optional[datetime] = None
+
+    @field_validator("blocked_by_guard", mode="before")
+    @classmethod
+    def _blocked_flag(cls, v):
+        return bool(v) if v is not None else False  # old rows / SQLite 0 and 1
 
 class AgentRecoveryDirective(BaseModel):
     """The explicit JSON schema output forced onto the Recovery Agent"""

@@ -12,7 +12,8 @@ class IncidentManager:
     # Define a strict, immutable state matrix mapping valid transitions
     _VALID_TRANSITIONS = {
         IncidentStatus.OPEN: [IncidentStatus.INVESTIGATING, IncidentStatus.ESCALATED],
-        IncidentStatus.INVESTIGATING: [IncidentStatus.RCA_COMPLETED, IncidentStatus.ESCALATED, IncidentStatus.RESOLVED],
+        # RECOVERY_IN_PROGRESS directly: the graph skips RCA when a safe rule already knows the fix.
+        IncidentStatus.INVESTIGATING: [IncidentStatus.RCA_COMPLETED, IncidentStatus.RECOVERY_IN_PROGRESS, IncidentStatus.ESCALATED, IncidentStatus.RESOLVED],
         IncidentStatus.RCA_COMPLETED: [IncidentStatus.RECOVERY_IN_PROGRESS, IncidentStatus.ESCALATED, IncidentStatus.RESOLVED],
         IncidentStatus.RECOVERY_IN_PROGRESS: [IncidentStatus.RESOLVED, IncidentStatus.ESCALATED, IncidentStatus.INVESTIGATING],
         IncidentStatus.RESOLVED: [],  # Terminal state

@@ -21,7 +21,7 @@ class PipelineB:
     def __init__(self):
         self.pipeline_id = "PIPELINE_B"
 
-    def execute(self, simulate_failure_type: Optional[str] = None, sql_override: Optional[str] = None, op_db_path: Optional[str] = None, original_filename: Optional[str] = None, run_id: Optional[str] = None) -> Optional[int]:
+    def execute(self, simulate_failure_type: Optional[str] = None, sql_override: Optional[str] = None, op_db_path: Optional[str] = None, original_filename: Optional[str] = None, run_id: Optional[str] = None, throw_on_error: bool = False) -> Optional[int]:
         """
         Runs the database ETL warehouse synchronization engine. 
         Extracts operational tables, aggregates data, and writes results to analytics database.
@@ -201,6 +201,10 @@ class PipelineB:
         except Exception as e:
             logger.exception("Critical failure detected during DB pipeline execution", pipeline_id=self.pipeline_id, error=str(e))
             TelemetryIncidentCreator.register_status(run_id, self.pipeline_id, "FAILED")
+            # During a verification run (throw_on_error=True) the actuator that called us owns
+            # recovery. Reporting here would start a nested healing loop inside the current one.
+            if throw_on_error:
+                raise
             TelemetryIncidentCreator.capture_and_report(run_id, self.pipeline_id, e, source_path=run_db_path, original_filename=original_filename)
             return None
 

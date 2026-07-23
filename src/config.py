@@ -15,12 +15,27 @@ def load_settings():
     with open(CONFIG_PATH, "r", encoding="utf-8") as f:
         return yaml.safe_load(f)
 
+def llm_text(response) -> str:
+    """The text of a Gemini reply (CHANGES.md section 29).
+    gemini-2.5 returns a plain string. Newer models (gemini-3.x) return a list of blocks,
+    e.g. [{'type': 'text', 'text': 'OK', 'extras': {...}}], so join the text blocks."""
+    content = getattr(response, "content", response)
+    if isinstance(content, str):
+        return content
+    parts = []
+    for block in content or []:
+        if isinstance(block, str):
+            parts.append(block)
+        elif isinstance(block, dict) and block.get("type", "text") == "text":
+            parts.append(str(block.get("text", "")))
+    return "".join(parts)
+
 def get_llm_config():
     """Returns LLM configuration (model_name, temperature) from settings.yaml."""
     settings = load_settings()
     llm_config = settings.get("llm", {})
     return {
-        "model_name": llm_config.get("model_name", "gemini-2.5-flash"),
+        "model_name": llm_config.get("model_name", "gemini-3.5-flash-lite"),
         "temperature": llm_config.get("temperature", 0.0)
     }
 
@@ -39,6 +54,16 @@ def get_database_paths():
     Parses the database URL from settings and returns absolute file paths
     for state_db, operational_db, and analytics_db.
     """
+    # Optional override (used by the test suite) so tests never touch the real databases.
+    override_dir = os.environ.get("EHA_DB_DIR")
+    if override_dir:
+        os.makedirs(override_dir, exist_ok=True)
+        return {
+            "state_db": os.path.join(override_dir, "platform_state.db"),
+            "operational_db": os.path.join(override_dir, "operational.db"),
+            "analytics_db": os.path.join(override_dir, "analytics.db"),
+        }
+
     settings = load_settings()
     db_url = settings.get("database", {}).get("url", "sqlite:///database/platform_state.db")
     

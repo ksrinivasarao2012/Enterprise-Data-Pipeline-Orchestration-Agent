@@ -96,6 +96,111 @@ class IncidentRepository:
         return IncidentSchema(**row_dict)
 
     @classmethod
+    def count_incidents_for_run(cls, run_id: str) -> int:
+        """Number of incidents already raised for one pipeline run (used by the heal-attempt cap)."""
+        with cls._get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT COUNT(*) FROM incidents WHERE run_id = ?", (run_id,))
+            row = cursor.fetchone()
+        return row[0] if row else 0
+
+    @staticmethod
+    def _row_to_incident(row_dict: dict) -> IncidentSchema:
+        if row_dict.get("created_at") and isinstance(row_dict["created_at"], str):
+            row_dict["created_at"] = datetime.fromisoformat(row_dict["created_at"])
+        if row_dict.get("resolved_at") and isinstance(row_dict["resolved_at"], str):
+            row_dict["resolved_at"] = datetime.fromisoformat(row_dict["resolved_at"])
+        if row_dict.get("telemetry_metadata") and isinstance(row_dict["telemetry_metadata"], str):
+            try:
+                row_dict["telemetry_metadata"] = json.loads(row_dict["telemetry_metadata"])
+            except Exception:
+                row_dict["telemetry_metadata"] = None
+        return IncidentSchema(**row_dict)
+
+    # Incidents the validation rules handled alone (quarantine only, no agents).
+    QUARANTINE_ONLY_CLASSES = ("DataQualityAnomaly", "ReferentialIntegrityAnomaly")
+    OUTCOMES = ("healed", "quarantined", "escalated", "in_progress")
+
+    @classmethod
+    def _filter_sql(cls, pipeline: str | None, outcome: str | None, search: str | None,
+                    blocked: bool | None = None) -> tuple[str, list]:
+        """WHERE clause for the dashboard filters (CHANGES.md section 18). Values are always
+        passed as parameters, never pasted into the SQL."""
+        where, params = [], []
+        if pipeline:
+            where.append("pipeline_id = ?")
+            params.append(pipeline)
+        q_only = ", ".join("?" for _ in cls.QUARANTINE_ONLY_CLASSES)
+        if outcome == "healed":
+            where.append(f"status = 'RESOLVED' AND COALESCE(error_class, '') NOT IN ({q_only})")
+            params += cls.QUARANTINE_ONLY_CLASSES
+        elif outcome == "quarantined":
+            where.append(f"status = 'RESOLVED' AND error_class IN ({q_only})")
+            params += cls.QUARANTINE_ONLY_CLASSES
+        elif outcome == "escalated":
+            where.append("status = 'ESCALATED'")
+        elif outcome == "in_progress":
+            where.append("status NOT IN ('RESOLVED', 'ESCALATED')")
+        if blocked is not None:
+            where.append("blocked_by_guard = ?")
+            params.append(1 if blocked else 0)
+        if search:
+            # % and _ are wildcards in LIKE; escape them so they are searched as normal letters.
+            term = "%" + search.lower().replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%"
+            cols = ["incident_id", "run_id", "error_class", "error_message", "category", "root_cause"]
+            where.append("(" + " OR ".join(f"LOWER(COALESCE({c}, '')) LIKE ? ESCAPE '\\'" for c in cols) + ")")
+            params += [term] * len(cols)
+        return (" WHERE " + " AND ".join(where)) if where else "", params
+
+    @classmethod
+    def get_incidents_page(cls, limit: int, offset: int = 0, pipeline: str | None = None,
+                           outcome: str | None = None, search: str | None = None,
+                           blocked: bool | None = None) -> tuple[list[IncidentSchema], int]:
+        """One page of incidents, newest first, plus the total that match the filters.
+        Used by the dashboard, which refreshes every few seconds."""
+        where, params = cls._filter_sql(pipeline, outcome, search, blocked)
+        with cls._get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(f"SELECT COUNT(*) FROM incidents{where}", tuple(params))
+            total = cursor.fetchone()[0]
+            cursor.execute(f"SELECT * FROM incidents{where} ORDER BY created_at DESC LIMIT ? OFFSET ?",
+                           tuple(params) + (limit, offset))
+            rows = cursor.fetchall()
+            columns = [col[0] for col in cursor.description]
+        return [cls._row_to_incident(dict(zip(columns, row))) for row in rows], total
+
+    @classmethod
+    def mark_blocked_by_guard(cls, incident_id: str) -> None:
+        """Records that a guard stopped an AI fix for this incident. Never raises: a failed mark
+        must not break healing (the audit log still has the reason)."""
+        try:
+            with cls._get_connection() as conn:
+                conn.execute("UPDATE incidents SET blocked_by_guard = 1 WHERE incident_id = ?", (incident_id,))
+                conn.commit()
+        except Exception:
+            from src.telemetry.logger import get_pipeline_logger
+            get_pipeline_logger("incident_repository").exception("Could not mark incident as blocked by guard", incident_id=incident_id)
+
+    @classmethod
+    def count_blocked_by_guard(cls) -> int:
+        """How many incidents a guard blocked, in total (the dashboard badge)."""
+        with cls._get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT COUNT(*) FROM incidents WHERE blocked_by_guard = 1")
+            return cursor.fetchone()[0]
+
+    @classmethod
+    def count_unresolved_for_pipeline(cls, pipeline_id: str, exclude_incident_id: str | None = None) -> int:
+        """Counts a pipeline's incidents that are not RESOLVED, in SQL (no need to load them all)."""
+        with cls._get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                "SELECT COUNT(*) FROM incidents WHERE pipeline_id = ? AND status != 'RESOLVED' AND incident_id != ?",
+                (pipeline_id, exclude_incident_id or ""),
+            )
+            return cursor.fetchone()[0]
+
+    @classmethod
     def get_all_incidents(cls) -> list[IncidentSchema]:
         """Retrieves all incidents from the repository."""
         query = "SELECT * FROM incidents ORDER BY created_at DESC"

@@ -15,6 +15,29 @@ def _apply_performance_pragmas(conn):
         conn.execute("PRAGMA journal_mode = WAL;")
         conn.execute("PRAGMA busy_timeout = 5000;")
 
+def _ensure_blocked_by_guard_column(cursor) -> bool:
+    """Adds incidents.blocked_by_guard if it is missing. Returns True when it was just added."""
+    if is_postgres():
+        cursor.execute(
+            "SELECT 1 FROM information_schema.columns WHERE table_name = 'incidents' AND column_name = 'blocked_by_guard'"
+        )
+        if cursor.fetchone():
+            return False
+    else:
+        cursor.execute("PRAGMA table_info(incidents)")
+        if any(row[1] == "blocked_by_guard" for row in cursor.fetchall()):
+            return False
+    cursor.execute("ALTER TABLE incidents ADD COLUMN blocked_by_guard INTEGER NOT NULL DEFAULT 0")
+    return True
+
+
+def _backfill_blocked_by_guard(cursor) -> None:
+    """Marks old incidents whose audit log (or recovery action) shows a guard block."""
+    from src.incidents.guard_messages import backfill_sql_and_params
+    sql, params = backfill_sql_and_params()
+    cursor.execute(sql, params)
+
+
 def initialize_database():
     if not is_postgres():
         os.makedirs(BASE_DIR, exist_ok=True)
@@ -52,6 +75,7 @@ def initialize_database():
                 root_cause TEXT,
                 recovery_action TEXT,
                 telemetry_metadata TEXT DEFAULT '[]',
+                blocked_by_guard INTEGER NOT NULL DEFAULT 0,
                 created_at TEXT NOT NULL,
                 resolved_at TEXT,
                 FOREIGN KEY(run_id) REFERENCES pipeline_runs(run_id) ON DELETE CASCADE
@@ -95,6 +119,38 @@ def initialize_database():
             )
         """)
         
+        # Login and run limits (CHANGES.md section 19). Kept in the database, not in memory,
+        # so a restart does not reset them and every server copy on Vercel sees the same numbers.
+        # Times are Unix seconds.
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS auth_failures (
+                client_id TEXT NOT NULL,
+                failed_at DOUBLE PRECISION NOT NULL
+            )
+        """)
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS run_events (
+                client_id TEXT NOT NULL,
+                started_at DOUBLE PRECISION NOT NULL
+            )
+        """)
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS demo_grants (
+                token TEXT NOT NULL,
+                pipeline TEXT NOT NULL,
+                test_case TEXT NOT NULL,
+                expires_at DOUBLE PRECISION NOT NULL
+            )
+        """)
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_auth_failures_client ON auth_failures(client_id, failed_at)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_run_events_client ON run_events(client_id, started_at)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_demo_grants_token ON demo_grants(token)")
+
+        # Databases made before CHANGES.md section 26 have no blocked_by_guard column. Add it, and
+        # fill it in ONCE for the old incidents from their audit log (only when the column is new).
+        if _ensure_blocked_by_guard_column(cursor):
+            _backfill_blocked_by_guard(cursor)
+
         # Performance Index Matrix
         if not is_postgres():
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_pipeline_runs_status ON pipeline_runs(status);")

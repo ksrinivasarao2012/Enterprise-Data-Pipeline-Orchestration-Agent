@@ -55,18 +55,22 @@ class QuarantineService:
             raise e
 
     @classmethod
-    def get_quarantined_records(cls) -> List[Dict[str, Any]]:
-        """Retrieves all quarantined records sorted by creation timestamp."""
+    def get_quarantined_records(cls, limit: int | None = None, offset: int = 0) -> List[Dict[str, Any]]:
+        """Quarantined records, newest first. With `limit`, only that page (CHANGES.md section 17)."""
         query = """
             SELECT quarantine_id, pipeline_id, run_id, record_type, raw_record, validation_errors, created_at
             FROM quarantined_records
             ORDER BY created_at DESC
         """
+        params: tuple = ()
+        if limit is not None:
+            query += " LIMIT ? OFFSET ?"
+            params = (limit, offset)
         records = []
         try:
             with cls._get_connection() as conn:
                 cursor = conn.cursor()
-                cursor.execute(query)
+                cursor.execute(query, params)
                 rows = cursor.fetchall()
                 for row in rows:
                     records.append({
@@ -81,6 +85,13 @@ class QuarantineService:
         except Exception as e:
             logger.error("Failed to fetch quarantined records", error=str(e))
         return records
+
+    @classmethod
+    def count_quarantined_records(cls) -> int:
+        with cls._get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT COUNT(*) FROM quarantined_records")
+            return cursor.fetchone()[0]
 
     @classmethod
     def clear_quarantine(cls) -> None:

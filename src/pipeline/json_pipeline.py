@@ -185,25 +185,32 @@ class PipelineA:
                 cur = conn.cursor()
                 seen_ids_in_batch = set()
                 
+                expected = [
+                    schema_mapping["id_col"],
+                    schema_mapping["name_col"],
+                    schema_mapping["email_col"],
+                    schema_mapping["country_col"],
+                ]
+                # Schema drift = a column is missing from EVERY row (it was renamed or removed).
+                # A field missing from only SOME rows is a problem with those rows, so they are
+                # quarantined below instead (CHANGES.md section 23).
+                rows = [item for item in raw_data if isinstance(item, dict)]
+                for expected_key in expected:
+                    if rows and all(expected_key not in item for item in rows):
+                        actual = list(rows[0].keys())
+                        sig = generate_error_signature(self.pipeline_id, "KeyError", expected_key)
+                        raise KeyError(
+                            f"[ErrorSignature: {self.pipeline_id}|KeyError|{expected_key}|{sig}] Expected: {expected} | Found: {actual}"
+                        )
+
                 for idx, item in enumerate(raw_data):
                     row_errors = []
-                    
-                    # Ensure keys are present in row item mapping (triggers KeyError for schema drift)
-                    for k in ["id_col", "name_col", "email_col", "country_col"]:
-                        expected_key = schema_mapping[k]
+                    if not isinstance(item, dict):
+                        item = {"value": item}
+                    for expected_key in expected:
                         if expected_key not in item:
-                            expected = [
-                                schema_mapping["id_col"],
-                                schema_mapping["name_col"],
-                                schema_mapping["email_col"],
-                                schema_mapping["country_col"],
-                            ]
-                            actual = list(item.keys())
-                            sig = generate_error_signature(self.pipeline_id, "KeyError", expected_key)
-                            raise KeyError(
-                                f"[ErrorSignature: {self.pipeline_id}|KeyError|{expected_key}|{sig}] Expected: {expected} | Found: {actual}"
-                            )
-                    
+                            row_errors.append(f"Missing field '{expected_key}'")
+
                     # 1. Map raw item keys using schema_mapping configuration
                     mapped_item = {
                         "customer_id": item.get(schema_mapping["id_col"]),
@@ -215,7 +222,8 @@ class PipelineA:
                     # 2. Run Pydantic validation
                     validated_record = None
                     try:
-                        validated_record = CustomerRecord(**mapped_item)
+                        if not row_errors:  # a row with a missing field is already bad; don't add more noise
+                            validated_record = CustomerRecord(**mapped_item)
                     except ValidationError as e:
                         for err in e.errors():
                             msg = err["msg"]

@@ -11,7 +11,10 @@ class SeverityRulesEngine:
         "httperror": IncidentCategory.API_FAILURE,             # Refined to map to specialized API sync categories
         "keyerror": IncidentCategory.SCHEMA_DRIFT,
         "valueerror": IncidentCategory.DATA_QUALITY,
-        "validationerror": IncidentCategory.DATA_QUALITY
+        "validationerror": IncidentCategory.DATA_QUALITY,
+        # Warnings raised when bad rows were quarantined and the rest loaded (no agents run)
+        "dataqualityanomaly": IncidentCategory.DATA_QUALITY,
+        "referentialintegrityanomaly": IncidentCategory.DATA_QUALITY,
     }
 
     @classmethod
