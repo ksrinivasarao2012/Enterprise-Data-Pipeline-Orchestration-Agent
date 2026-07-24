@@ -1,0 +1,102 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/*
+ * Two moods, one system.
+ * Light: warm editorial paper. Dark: mission-control ink with signal colours.
+ * Tokens are RGB triplets so Tailwind opacity modifiers (bg-ok/10) work.
+ */
+@layer base {
+  :root {
+    --bg: 244 241 234;
+    --surface: 251 250 246;
+    --surface2: 236 232 222;
+    --line: 214 208 195;
+    --fg: 20 19 17;
+    --muted: 82 78 70;
+    --faint: 108 102 92;
+    --primary: 20 19 17;
+    --onprimary: 251 250 246;
+    --ok: 14 118 70;
+    --warn: 150 84 0;
+    --bad: 196 30 42;
+    --info: 34 84 204;
+    --focus: 34 84 204;
+    --grid: 20 19 17;
+    color-scheme: light;
+  }
+  .dark {
+    --bg: 7 8 10;
+    --surface: 13 15 19;
+    --surface2: 21 24 30;
+    --line: 36 40 49;
+    --fg: 236 238 242;
+    --muted: 156 162 174;
+    --faint: 122 128 142;
+    --primary: 236 238 242;
+    --onprimary: 7 8 10;
+    --ok: 61 220 151;
+    --warn: 255 176 32;
+    --bad: 255 92 98;
+    --info: 96 156 255;
+    --focus: 96 156 255;
+    --grid: 236 238 242;
+    color-scheme: dark;
+  }
+  html {
+    @apply bg-bg text-fg antialiased;
+  }
+  body {
+    @apply min-h-screen bg-bg font-sans text-fg;
+  }
+  :focus-visible {
+    @apply outline-none ring-2 ring-focus ring-offset-2 ring-offset-bg;
+  }
+  /* <main> gets focus after a tab switch (so screen readers jump to the new page); no ring around the whole page. */
+  main:focus-visible {
+    box-shadow: none;
+  }
+  ::selection {
+    @apply bg-info/25;
+  }
+}
+
+@layer components {
+  .card {
+    @apply rounded-2xl border border-line bg-surface;
+  }
+  .btn {
+    @apply inline-flex h-9 items-center justify-center gap-2 rounded-lg border border-line bg-surface px-3.5 text-sm font-medium text-fg transition-colors hover:bg-surface2 disabled:cursor-not-allowed disabled:opacity-55;
+  }
+  .btn-primary {
+    @apply inline-flex h-12 items-center justify-center gap-2 rounded-xl bg-primary px-5 text-[15px] font-semibold text-onprimary transition-[opacity,transform] hover:opacity-90 active:scale-[.99] disabled:cursor-not-allowed disabled:opacity-55;
+  }
+  .pill {
+    @apply inline-flex h-[22px] items-center gap-1.5 whitespace-nowrap rounded-full px-2 text-xs font-medium;
+  }
+  .pill-ok { @apply bg-ok/10 text-ok dark:bg-ok/15; }
+  .pill-warn { @apply bg-warn/10 text-warn dark:bg-warn/15; }
+  .pill-bad { @apply bg-bad/10 text-bad dark:bg-bad/15; }
+  .pill-info { @apply bg-info/10 text-info dark:bg-info/15; }
+  .pill-neutral { @apply bg-surface2 text-muted; }
+  .eyebrow {
+    @apply font-mono text-[11px] font-medium uppercase tracking-[0.14em] text-faint;
+  }
+  .skeleton {
+    @apply animate-pulse rounded-md bg-surface2;
+  }
+  /* Faint dot grid behind the mission-control panels. */
+  .dot-grid {
+    background-image: radial-gradient(rgb(var(--grid) / 0.09) 1px, transparent 1px);
+    background-size: 22px 22px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}

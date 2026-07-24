@@ -93,8 +93,24 @@
             animation: toastFadeOut 0.25s ease-out forwards;
         }
     </style>
+    <!-- Make the "hidden" attribute always win, even if Tailwind fails to load -->
+    <style>[hidden] { display: none !important; }</style>
 </head>
 <body class="bg-slate-950 text-slate-100 font-sans min-h-screen antialiased">
+
+    <!-- Login box (shown when the server needs an access key) -->
+    <div id="login-overlay" hidden class="fixed inset-0 z-[9000] bg-slate-950/95 flex items-center justify-center px-4">
+        <form id="login-form" class="glass-card w-full max-w-sm rounded-2xl p-6 space-y-4 border border-slate-800">
+            <div>
+                <h2 class="text-lg font-bold font-display text-slate-100">Log in</h2>
+                <p class="text-xs text-slate-400 mt-1">Enter your access key. Viewers can watch and run tests; the admin can also clear history.</p>
+            </div>
+            <input id="login-key" type="password" autocomplete="current-password" placeholder="Access key"
+                   class="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-100 focus:outline-none focus:border-indigo-500" />
+            <p id="login-error" hidden class="text-xs text-rose-400"></p>
+            <button id="login-submit" type="submit" class="w-full bg-indigo-600 hover:bg-indigo-500 text-white font-bold py-2.5 rounded-lg text-xs cursor-pointer">Log in</button>
+        </form>
+    </div>
 
     <!-- Toast Notification Container -->
     <div id="toast-container" class="fixed top-6 right-6 z-[9999] flex flex-col gap-3 w-full max-w-sm px-4 sm:px-0 pointer-events-none"></div>
@@ -122,7 +138,11 @@
                 <span class="w-2 h-2 rounded-full bg-emerald-500 animate-ping"></span>
                 Control Plane: Online
             </span>
-            <button onclick="clearHistory()" class="bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 border border-rose-500/20 text-xs font-semibold py-2 px-4 rounded-lg transition duration-200 cursor-pointer">
+            <span id="role-badge" hidden class="px-3 py-1 rounded-full text-xs font-semibold bg-indigo-500/10 text-indigo-300 border border-indigo-500/20"></span>
+            <button id="btn-logout" onclick="logout()" hidden class="bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 text-xs font-semibold py-2 px-4 rounded-lg transition duration-200 cursor-pointer">
+                Log out
+            </button>
+            <button id="btn-clear-history" onclick="clearHistory()" class="bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 border border-rose-500/20 text-xs font-semibold py-2 px-4 rounded-lg transition duration-200 cursor-pointer">
                 Clear DB History
             </button>
         </div>
@@ -171,6 +191,11 @@
                             <input id="upload-a" type="file" accept=".json" class="hidden" onchange="updateFilename('upload-a', 'filename-a')" />
                         </label>
                     </div>
+
+                    <!-- Security fix 6: tell users before they upload that broken files leave the server -->
+                    <p id="gemini-warning" class="text-[11px] leading-snug text-amber-400/90 bg-amber-500/5 border border-amber-500/20 rounded-lg px-3 py-2">
+                        Privacy note: if your JSON file has broken syntax, its full contents are sent to Google Gemini to be repaired. Do not upload real personal data. Max file size: 5 MB.
+                    </p>
                     
                     <button id="btn-pipeline-a" onclick="runPipelineA()" class="w-full bg-indigo-600 hover:bg-indigo-500 active:scale-[0.98] text-white font-bold py-2.5 px-4 rounded-lg shadow-lg shadow-indigo-600/10 transition duration-150 text-xs cursor-pointer">
                         Execute Ingestion Pipeline A

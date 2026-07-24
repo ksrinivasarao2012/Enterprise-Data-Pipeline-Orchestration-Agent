@@ -12,13 +12,16 @@ An advanced, production-grade SRE (Site Reliability Engineering) automation plat
 ## Key Features
 
 - **Dual Data Pipelines** — JSON batch ingestion (Pipeline A) and database-to-database ETL (Pipeline B) with full telemetry instrumentation.
-- **Multi-Agent Self-Healing** — Four cooperative LangGraph agents (Monitor → Classifier → RCA → Recovery) automatically diagnose and remediate failures without human intervention.
-- **Iterative Schema Drift Recovery** — Handles compounding multi-column drifts across successive pipeline runs using persistent configuration overrides.
-- **LLM-Powered File Repair** — Gemini automatically repairs malformed JSON syntax on disk and retries ingestion.
+- **Branching Agent Graph** — A LangGraph graph (Monitor → Classifier → RCA → Recovery → Apply → Verify → Escalate) that makes real decisions: safe rules first, Gemini RCA only when no rule knows the fix (or to explain a failure to a person), Recovery reads the RCA analysis, and Verify loops back to Recovery when it finds another problem.
+- **Iterative Schema Drift Recovery** — Heals compounding multi-column drifts (e.g. `customer_id` → `id` **and** `email` → `user_email`) inside a single run: each verification run that reveals another drift resolves it and retries, up to 4 attempts.
+- **Honest Healing Status** — A run is only marked `HEALED` when a verification run actually saves rows. Partial fixes, 0-row runs and unresolvable errors are escalated instead of being reported as successes. If the healing code itself crashes, the incident is escalated too, never left open.
+- **SQL Guard** — Every SQL query repaired by Gemini is checked with `sqlglot` before it runs. Only a pure column **rename** to an approved name is allowed; fake constants, formula tricks (e.g. `* 0`), wrong columns, other tables and non-`SELECT` statements are rejected and escalated.
+- **LLM-Powered File Repair** — Gemini repairs malformed JSON syntax and the pipeline retries. The repair is only accepted if every key and value is unchanged (only brackets and commas may differ); otherwise it is escalated.
+- **Security Hardening** — Login with two keys (viewer / admin; only the admin can clear history), only real test file names are accepted, uploads are capped at 5 MB, all dashboard data is shown as plain text (no script injection), and repaired SQL/JSON is checked before use. See [Security](#security).
 - **Hybrid Fault-Tolerance & Quarantine** — Row-level anomalies (bad email formats, duplicate IDs, null device IDs) are isolated per-row into a dedicated `quarantined_records` table. Healthy records are always ingested, and invalid records are logged for operator review — without crashing the pipeline.
 - **Pydantic v2 Validation** — All ingested customer records are validated via a typed `CustomerRecord` Pydantic model. Custom field validators handle type coercions (e.g., `5` → `"5"`), null checks, email format rules, and string normalizations before any database write.
 - **Dual-Database Architecture** — Runs locally on SQLite, and automatically switches to **Neon Postgres** when deployed to Vercel — zero code changes required.
-- **Real-Time Dashboard** — A responsive, dark-themed web dashboard with live metrics, incident tracking, quarantine log, data ingestion rules reference, and pipeline execution sandbox.
+- **React Dashboard** — A React + Vite + TypeScript dashboard (`frontend/`) with light and dark themes, a login screen, a **live** agent flow (each step lights up as the agent finishes it), an incident timeline with "Blocked by guard" badges, and a records view. Click any agent circle to see what it did in that run (e.g. Gemini's full root-cause text), download any incident as a **PDF or JSON report**, press **Try all** to run all 13 presets one after another (counts as one run for the viewer limit), read every escalation in plain words (what went wrong, why a person is needed), and search or filter the incident log by pipeline and outcome. Works on phones. The original HTML dashboard (`public/`) is kept as a fallback.
 - **Vercel-Native Deployment** — Fully serverless deployment on Vercel's free tier with in-process healing (no background task limitations).
 
 ---
@@ -48,16 +51,15 @@ The platform is split into three core logical tiers: the **Data Ingestion Layer*
                                             | In-Process Trigger
                                             v
 +-------------------------------------------+-------------------------------------------+
-|                    Agentic Remediation Loop (LangGraph)                               |
-| [Monitor Agent] --> [Classifier Agent] --> [RCA Agent] --> [Recovery Actuator]        |
-+-------------------------------------------+-------------------------------------------+
-                                            |
-                                            v
-                               +------------+------------+
-                               |   Dry-Run Verification  |
-                               |   ✓ Commit & Resolve    |
-                               |   ✗ Rollback & Escalate |
-                               +-------------------------+
+|                    Branching Agent Graph (LangGraph)                                  |
+|  Monitor -> Classifier --rule knows fix-----------------> Recovery                    |
+|                        --no rule---> RCA (Gemini) ------> Recovery (reads RCA)        |
+|                        --no fix----> RCA (Gemini) ------> Escalate (with explanation) |
+|  Recovery --escalate--> Escalate                                                      |
+|  Recovery --fix-------> Apply -> Verify --rows saved------------> HEALED              |
+|                                         --another drift, tries--> back to Recovery    |
+|                                         --anything else---------> Escalate            |
++---------------------------------------------------------------------------------------+
 ```
 
 ### 1. Data Plane Pipelines
@@ -67,35 +69,52 @@ The platform is split into three core logical tiers: the **Data Ingestion Layer*
   - **Input Schema**: `customer_id`, `name`, `email`, `country`
 - **Destination**: Saves parsed data to the `customers` table.
   - **Output Schema**: `customer_id` (PK), `name`, `email` (Unique), `country`, `signup_date`, `status` (Default: `ACTIVE`), `total_orders` (Default: `0`)
-- **Self-Healing Scope**: Resilient against multi-column schema drifts (e.g., `country` → `nation`, `email` → `user_email`), malformed JSON syntax, and invalid root data structures. Supports iterative healing of compounding drifts using active schema overrides dynamically applied from the control plane's config tables.
+- **Self-Healing Scope**: Resilient against multi-column schema drifts (e.g., `country` → `nation`, `email` → `user_email`), malformed JSON syntax, and invalid root data structures. Compounding drifts are healed within the same run: the actuator collects one mapping per drift and re-runs the pipeline with all of them until the data saves (max 4 attempts).
 
 #### Pipeline B — Database ETL Engine
 - **Source**: Flat telemetry logs table (`device_telemetry`) from an uploaded SQLite `.db` file.
   - **Table Structure**: `log_id` (PK), `device_id`, `timestamp`, `status_code`, `response_time`
 - **Destination**: Saves aggregated system summaries to `system_performance_metrics` table.
   - **Output Schema**: `device_id` (PK), `total_events`, `error_rate`, `avg_response_time`
-- **Self-Healing Scope**: Automatically repairs invalid database metrics queries, SQL syntax issues, or structural data-drift constraints using dynamic SQL command injections verified in a clean dry-run retry container.
+- **Self-Healing Scope**: Gemini rewrites the failing metrics query to fix SQL syntax errors or map a renamed column to its existing equivalent; the rewrite is then verified by re-running the pipeline. If a column the query needs has **no** equivalent (e.g. `status_code` is missing from `sql_error.db`), the model must answer `UNRESOLVABLE` and the incident is escalated. The platform never substitutes constants such as `0.0` or `NULL`, which would silently produce fake metrics. As a second safety net, the **SQL guard** (`src/agents/sql_guard.py`) checks Gemini's query before it runs and rejects it if it is not a single `SELECT` on the same table, uses columns that do not exist, changes the outputs, or replaces a missing column with a constant. It also enforces **rename only**: Gemini's query must be the original query with the missing column swapped for a name from `sql_column_aliases` in `configs/settings.yaml`, and nothing else changed. This blocks tricks such as `http_status * 0` and real-but-wrong columns such as `timestamp`.
 
 ### 2. Control Plane (Telemetry & Metadata Server)
 
 - **Technology**: FastAPI (runs locally on port `8000` or as Vercel Serverless Functions)
 - **Database Tier** (`platform_state.db` locally / Neon Postgres on Vercel):
-  - `pipeline_runs` — Logs start/end timestamps and execution status (`RUNNING`, `SUCCESS`, `FAILED`, `HEALED`).
+  - `pipeline_runs` — Logs start/end timestamps and execution status (`RUNNING`, `SUCCESS`, `FAILED`, `HEALED`, `QUARANTINED`). `HEALED` means a remediation ran **and** rows were saved.
   - `incidents` — Stores telemetry exceptions, error classifications, severity levels, root-cause analyses, and resolution histories.
   - `pipeline_configs` — Maintains active versioned configuration maps (JSON mappings and SQL overrides) to support hot-swapping schemas.
   - `audit_logs` — A secure chronological trace of every telemetry alert and remediation action.
 
 ### 3. Agentic Remediation Engine (LangGraph Core)
 
-When a pipeline throws an exception, the telemetry interceptor captures the error and triggers an in-process LangGraph workflow:
+When a pipeline throws an exception, the telemetry interceptor captures the error and runs the agent graph (`src/orchestration/graph.py`). The graph branches, so each incident only takes the steps it needs:
 
-1. **Monitor Agent**: Validates telemetry alert footprints and initializes the operational tracking incident status (`INVESTIGATING`).
-2. **Classifier Agent**: Examines error signatures and categorizes the blast radius into Severity Levels (`P0`–`P3`) and Incident Categories (`SCHEMA_DRIFT`, `DATABASE_FAILURE`, etc.).
-3. **RCA Agent**: Uses Gemini to formulate a detailed technical diagnosis, tracing structural exceptions back to code logic.
-4. **Recovery Agent (Actuator)**: Builds a correction directive (e.g., mapping `id_col` to `customer_id` or rewriting SQL queries). It tests the fix in a sandbox:
-   - **Dry-run succeeds** (Success) → Configuration committed, incident marked `RESOLVED`.
-   - **Dry-run reveals a *new* error** (Warning) → Current fix committed, subsequent runs heal remaining issues iteratively.
-   - **Original error persists** (Failure) → Draft config rolled back, incident `ESCALATED` to human operators.
+1. **Monitor Agent**: opens the investigation (`INVESTIGATING`).
+2. **Classifier Agent**: sets the severity (`P0`–`P3`) and **chooses the route** (it writes it in the audit log, e.g. "Route: Recovery (no Gemini needed), because a known column alias matches"):
+   - **a safe rule knows the fix** (renamed column with a known alias, object instead of list, every row bad, temporary failure) → straight to Recovery, **no Gemini call**;
+   - **no rule fits** (SQL needs rewriting, broken JSON syntax, unknown column name) → RCA first;
+   - **no automatic fix exists** (e.g. the source table is missing) → RCA explains it, then Escalate.
+3. **RCA Agent** (Gemini): writes the root-cause analysis. It runs only on the last two routes.
+4. **Recovery Agent**: chooses the fix. Every Gemini prompt it sends (SQL rewrite, column mapping, JSON repair) **includes the RCA analysis**. Guards still check every AI fix (SQL guard, JSON repair check).
+5. **Apply fix → Verify**: the fix is applied and the pipeline re-run for real:
+   - **rows saved** → configuration committed, run `HEALED`, incident `RESOLVED`;
+   - **another column is missing** (e.g. two columns were renamed) → the graph **loops back to Recovery**, which adds the next fix; up to `MAX_HEAL_ATTEMPTS = 4`. The dashboard draws this as a retry arc;
+   - **anything else** → Escalate.
+6. **Escalate**: the incident is handed to a person, with a plain-English reason.
+
+| Preset | Path | Gemini calls | Result |
+|:---|:---|:---:|:---|
+| Renamed column (country / email / id), wrong JSON shape | Monitor → Classifier → Recovery → Apply → Verify | 0 | Healed |
+| Two renamed columns | … → Verify → **back to Recovery** → Apply → Verify | 0 | Healed |
+| Broken JSON syntax | Monitor → Classifier → RCA → Recovery → Apply (Gemini adds only the missing `},`) → Verify | 2 | Healed: 9 rows loaded, the row with no country quarantined |
+| All device IDs empty | Monitor → Classifier → Recovery → Quarantine | 0 | Quarantined |
+| Missing column | Monitor → Classifier → RCA → Recovery (SQL guard blocks) → Escalate | 2 | Human |
+| Missing table | Monitor → Classifier → RCA → Escalate | 1 | Human |
+| Healthy / bad email / duplicate IDs | no agents (validation only) | 0 | Success / Quarantined |
+
+**Loop safety**: verification runs raise their errors back to the graph (`throw_on_error=True`) instead of opening new incidents, so healing can never start another healing loop inside itself. Once a single run has raised more than 4 incidents, the workflow escalates before any agent runs. If the healing code itself crashes, the incident is escalated too.
 
 ### 4. Incident Classification & Severity Routing
 
@@ -127,8 +146,8 @@ To prevent minor row-level anomalies (like invalid formatting or single duplicat
 *   **Warning Incident Logging**: Each quarantined run registers a low-priority (`P3`) warning incident categorized as `DATA_QUALITY`. Since valid data was successfully ingested, this incident auto-resolves immediately (`RESOLVED` using `force_override=True` to bypass state machine rules) for clean auditing.
 *   **Complete Escalation Guardrails**:
     *   **All Rows Invalid**: If 100% of the ingestion payload is quarantined (resulting in `0` valid records loaded), the pipeline throws a `ValueError`. This registers the run as `FAILED` and raises an open incident.
-    *   **Agentic Actuation**: For failed aggregates, the LangGraph Recovery agent is invoked. If it deploys a `QUARANTINE` directive (isolating the bad records), the actuator updates the run status to `HEALED` post-isolation.
-    *   **Infinite Loop Prevention**: If a configuration dry-run during schema-drift recovery encounters the **same missing primary ID/key** error, the actuator rolls back the configurations and escalates the incident directly to a human on-call engineer via `_handle_escalation()`.
+    *   **Agentic Actuation**: For failed aggregates, the LangGraph Recovery agent is invoked. If it deploys a `QUARANTINE` directive (isolating the bad records), the incident is `RESOLVED` and the run ends as `QUARANTINED`. It is **not** marked `HEALED`, because no valid rows were left to load.
+    *   **Infinite Loop Prevention**: If a verification run during schema-drift recovery fails on a column that was **already fixed**, the actuator stops and escalates to a human via `_handle_escalation()`. Verification runs never open nested incidents, and a per-run cap of 4 incidents escalates anything that slips through.
 
 ### 6. Pydantic v2 Validation Layer
 
@@ -156,9 +175,10 @@ Validation errors are extracted per-row from `ValidationError.errors()`, strippe
 ├── requirements.txt                # Pip-compatible dependency list
 ├── vercel.json                     # Vercel deployment configuration (routes & builds)
 ├── run_platform.py                 # Unified local application launcher
+├── CHANGES.md                      # What was fixed and why, in simple words
 │
 ├── configs/
-│   └── settings.yaml               # Global system configurations (LLM model, DB paths)
+│   └── settings.yaml               # Global configs (LLM model, DB paths, column aliases, SQL guard rename list)
 │
 ├── database/
 │   ├── init_db.py                  # Database schema initialization (SQLite + Postgres)
@@ -166,7 +186,12 @@ Validation errors are extracted per-row from `ValidationError.errors()`, strippe
 │   ├── operational.db              # Raw ingestion transactional database
 │   └── analytics.db                # Target warehouse for aggregated metrics
 │
-├── public/                         # Static web dashboard (served on Vercel & locally)
+├── frontend/                       # React + Vite + TypeScript dashboard (build: npm run build)
+│   ├── src/api.ts                  # All API calls, login key header, response types
+│   ├── src/components/             # Login, Try it, agent flow, incident timeline, records
+│   └── dist/                       # Built app (not committed; FastAPI serves it when present)
+│
+├── public/                         # Original HTML dashboard (fallback when frontend/ is not built)
 │   ├── index.html                  # Dashboard UI (dark-themed, responsive, GitHub link, Data Rules panel)
 │   └── app.js                      # Dashboard logic (fetch, render, pipeline controls, quarantine log)
 │
@@ -178,13 +203,17 @@ Validation errors are extracted per-row from `ValidationError.errors()`, strippe
 │   │   ├── monitor.py              # Monitor Agent — telemetry verification
 │   │   ├── classifier.py           # Classifier Agent — severity & category assignment
 │   │   ├── rca.py                  # RCA Agent — Gemini-powered root cause analysis
-│   │   └── recovery.py            # Recovery Agent — remediation directive generator
+│   │   ├── recovery.py             # Recovery Agent — remediation directive generator
+│   │   └── sql_guard.py            # Checks Gemini's repaired SQL before it runs (sqlglot)
 │   │
 │   ├── api/
-│   │   └── main.py                 # FastAPI gateway (REST endpoints + Vercel entrypoint)
+│   │   ├── main.py                 # FastAPI gateway (REST endpoints + Vercel entrypoint)
+│   │   ├── auth.py                 # Login keys, permissions, lockout and run limit
+│   │   └── security_store.py       # Stores limits, lockouts and Try all tokens in the database
 │   │
 │   ├── incidents/
 │   │   ├── incident_manager.py     # State transitions and lifecycle control
+│   │   ├── escalation_text.py      # Turns raw escalation errors into plain words
 │   │   ├── incident_repository.py  # Data access layer for incidents
 │   │   └── severity_rules.py       # Deterministic severity & category classification
 │   │
@@ -192,7 +221,7 @@ Validation errors are extracted per-row from `ValidationError.errors()`, strippe
 │   │   └── schemas.py              # Pydantic data models & enums
 │   │
 │   ├── orchestration/
-│   │   └── graph.py                # LangGraph multi-agent orchestration graph
+│   │   └── graph.py                # Branching LangGraph agent graph (routes, verify loop, escalate)
 │   │
 │   ├── pipeline/
 │   │   ├── json_pipeline.py        # Pipeline A implementation
@@ -202,20 +231,20 @@ Validation errors are extracted per-row from `ValidationError.errors()`, strippe
 │   │   ├── audit_service.py        # Centralized audit logging service
 │   │   ├── pipeline_service.py     # Pipeline execution status tracking
 │   │   ├── quarantine_service.py   # Quarantine record insert, fetch & clear operations
-│   │   └── remediation_service.py  # Actuator with dry-run verification & rollback
+│   │   ├── remediation_service.py  # Actuator: verification re-runs, multi-drift loop, escalation
+│   │   └── report_service.py       # Incident report as JSON or PDF (fpdf2)
 │   │
-│   ├── telemetry/
-│   │   ├── incident_creator.py     # In-process telemetry capture & healing trigger
-│   │   └── logger.py               # Structured logging (structlog) configuration
-│   │
-│   └── ui/
-│       └── app.py                  # Streamlit Operations Dashboard (local dev)
+│   └── telemetry/
+│       ├── incident_creator.py     # In-process telemetry capture & healing trigger
+│       └── logger.py               # Structured logging (structlog) configuration
 │
 ├── test_data/
 │   ├── pipeline_A/                 # Test JSON datasets with drift variations
 │   │   ├── case_healthy.json
 │   │   ├── case_drift_country.json
 │   │   ├── case_drift_email.json
+│   │   ├── case_drift_id.json
+│   │   ├── case_drift_multi.json   # Two drifts at once (id + email)
 │   │   ├── case_invalid_root.json
 │   │   ├── case_malformed_syntax.json
 │   │   ├── case_invalid_email.json
@@ -226,8 +255,26 @@ Validation errors are extracted per-row from `ValidationError.errors()`, strippe
 │       ├── referential_integrity.db
 │       └── missing_table.db
 │
+├── test/
+│   ├── conftest.py                 # Temporary test database + shared fake-Gemini fixtures
+│   ├── test_recovery.py            # Unit tests: alias matching, fix validation
+│   ├── test_sql_guard.py           # Unit tests: one per SQL guard rule
+│   ├── test_healing_e2e.py         # End-to-end healing tests (fake LLM, real API + LangGraph)
+│   ├── test_security.py            # Security tests, incl. a real-browser script-injection test
+│   ├── test_auth.py                # Login and permissions tests, incl. a real-browser login test
+│   ├── test_paging.py              # Incident paging (limit/offset, X-Total-Count)
+│   ├── test_report.py              # Incident report download (JSON / PDF)
+│   ├── test_escalation_text.py     # Escalations in plain words
+│   ├── test_escalations_from_db.py # Escalations read from the incidents table
+│   ├── test_crash_escalates.py     # A crash during healing escalates instead of staying OPEN
+│   ├── test_agent_paths.py         # Each preset's path through the graph, Gemini calls and result
+│   ├── test_records_paging.py      # Quarantine / escalations paging
+│   ├── test_incident_filters.py    # Incident search and filters
+│   └── test_lockout_and_shared_limits.py  # Wrong-key lockout; limits shared by server copies
+│
 └── scratch/
-    └── create_test_databases.py    # Script generating SQLite test files
+    ├── create_test_databases.py    # Script generating SQLite test files
+    └── populate_db.py              # Generates sample data for the dashboard
 ```
 
 ---
@@ -274,7 +321,7 @@ The platform uses Google Gemini for intelligent root cause analysis and schema r
 The LLM model and temperature are configured centrally in `configs/settings.yaml`:
 ```yaml
 llm:
-  model_name: "gemini-2.5-flash"
+  model_name: "gemini-3.5-flash-lite"
   temperature: 0.0
 ```
 
@@ -287,13 +334,25 @@ venv\Scripts\python -m database.init_db
 venv\Scripts\python.exe scratch/create_test_databases.py
 ```
 
-#### 4. Launch the Platform
+#### 4. Build the React Dashboard (once, and after frontend changes)
+
+Needs [Node.js](https://nodejs.org) 18 or newer.
+```powershell
+cd frontend
+npm install
+npm run build
+cd ..
+```
+This creates `frontend/dist/`. If you skip this step, the original HTML dashboard in `public/` is served instead.
+
+For live editing of the UI, run `npm run dev` inside `frontend/` while the backend is running; Vite opens the app at `http://localhost:5173` and forwards `/api` to port 8000.
+
+#### 5. Launch the Platform
 ```powershell
 venv\Scripts\python.exe run_platform.py
 ```
-- **FastAPI Control Plane**: Runs on port `8000` (logs routed to `database/fastapi.log`)
-- **Web Dashboard**: Opens at `http://localhost:8000` (static files served by FastAPI)
-- **Streamlit Console** (optional): Opens at `http://localhost:8501`
+- **FastAPI Control Plane**: Runs on port `8000`; logs are shown in the terminal. Stop with `Ctrl+C`.
+- **Web Dashboard**: The launcher prints `http://localhost:8000` and opens it in your browser (add `--no-browser` to skip). FastAPI serves the React app from `frontend/dist/` if it is built, otherwise `public/` (set `EHA_UI=legacy` to force the old one)
 
 > **Port Conflict**: If port `8000` is in use, the launcher will detect it and display an error. Stop the previous process before relaunching.
 
@@ -376,17 +435,17 @@ Open the dashboard and run these testing scenarios:
 5. The API will return an auto-healed success response to the UI.
 
 ### Scenario 2: Iterative Multi-Step Healing (Pipeline A)
-1. Select `case_drift_email.json` (contains *both* ID column drift `customer_id` → `id` and Email column drift `email` → `user_email`).
+1. Upload `test_data/pipeline_A/case_drift_multi.json` (contains *both* ID column drift `customer_id` → `id` and Email column drift `email` → `user_email`).
 2. Click **Execute Ingestion Pipeline A**.
-3. The engine heals the ID key first, detects the second drift on Email during dry-run, commits the first fix, and triggers subsequent resolutions to fix both mappings sequentially.
-4. Once both incidents transition to `RESOLVED`, the pipeline has successfully processed the file.
+3. The engine maps `id` first. The verification run then fails on the missing `email`, so the actuator maps `user_email` and re-runs with both fixes.
+4. The second verification run saves all 10 rows. One incident is `RESOLVED`, the run is `HEALED`, and the audit trail shows both fixes.
 
 ### Scenario 3: Database ETL Sandbox (Pipeline B)
 1. Under **Database ETL Sandbox**, select `healthy.db`.
 2. Click **Execute Ingestion Pipeline B** — the run succeeds, showing the synced records count.
 3. Now select `sql_error.db` (where the `status_code` column is missing).
 4. Execute. The telemetry captures the query parse failure and files a database priority incident.
-5. The LangGraph loop executes and applies SQL query fixes to reconcile the missing metadata.
+5. The LangGraph loop asks Gemini to repair the query. Because `status_code` has no equivalent column, the correct outcome is `UNRESOLVABLE` → incident `ESCALATED`, and nothing is written to the analytics table.
 
 ---
 
@@ -397,12 +456,14 @@ Open the dashboard and run these testing scenarios:
 | Test JSON File | Expected Behavior | Explanation | Healing Outcome |
 |:---|:---|:---|:---|
 | `case_healthy.json` | **Success** | Matches baseline schema exactly. | All 10 records written to `customers` table. |
-| `case_drift_country.json` | **Failure → Self-Healed** | Key `country` renamed to `nation`, triggers `KeyError`. | LangGraph matches drift, saves override config, marks `RESOLVED`. |
-| `case_drift_email.json` | **Failure → Self-Healed** | Two drifts: `customer_id` → `id`, `email` → `user_email`. | Heals ID key first, catches email drift during dry-run, resolves both. |
+| `case_drift_country.json` | **Failure → Self-Healed** | Key `country` renamed to `nation`, triggers `KeyError`. | Deterministic alias matcher maps `country_col` → `nation`, run `HEALED`, 10 rows saved. |
+| `case_drift_email.json` | **Failure → Self-Healed** | Key `email` renamed to `user_email`, triggers `KeyError`. | Deterministic alias matcher maps `email_col` → `user_email`, run `HEALED`, 10 rows saved. |
+| `case_drift_id.json` | **Failure → Self-Healed** | Primary key `customer_id` renamed to `id`, triggers `KeyError`. | Deterministic alias matcher maps `id` → `customer_id`, run `HEALED`, 10 rows saved. |
+| `case_drift_multi.json` | **Failure → Self-Healed** | Two drifts: `customer_id` → `id` **and** `email` → `user_email`. | Both mappings resolved in one run (two verification runs), run `HEALED`, 10 rows saved. *(Upload it; it is not in the dashboard preset list.)* |
 | `case_invalid_root.json` | **Failure → Self-Healed** | JSON root is a dictionary instead of a list. | Applies `flatten_root_dict: True` override to extract values as array. |
-| `case_malformed_syntax.json` | **Failure → Self-Healed** | Malformed JSON (missing commas/brackets). | Gemini repairs syntax on disk via `REPAIR_FILE` directive, retries. |
-| `case_invalid_email.json` | **Partial → Quarantined** | One row has invalid email (`john.doe_example.com` missing `@`). | Pydantic validator catches it; bad row isolated to `quarantined_records`, remaining 9 rows ingested successfully. Run status: `QUARANTINED`. |
-| `case_duplicate_ids.json` | **Partial → Quarantined** | One duplicate `customer_id` exists in the batch. | Stateful batch duplicate check catches it; duplicate row quarantined, remaining rows ingested. Run status: `QUARANTINED`. |
+| `case_malformed_syntax.json` | **Failure → Healed (1 row quarantined)** | Row 5 is missing its closing `}` **and** its `country` field. | Gemini adds only the missing `},` (the JSON repair check blocks any invented value). The re-run then quarantines row 5 ("Missing field 'country'") and loads the other 9. If Gemini invents a country anyway, the repair is rejected and the incident is `ESCALATED`. |
+| `case_invalid_email.json` | **Partial → Quarantined** | One row has invalid email (`john.doe_example.com` missing `@`). | Pydantic validator catches it; bad row isolated to `quarantined_records`, remaining 9 rows ingested successfully. Run status: `QUARANTINED`. No agents run; the dashboard shows "Quarantined, no agents needed" (P3 data-quality warning, not counted as healed). |
+| `case_duplicate_ids.json` | **Partial → Quarantined** | One duplicate `customer_id` exists in the batch. | Stateful batch duplicate check catches it; duplicate row quarantined, remaining rows ingested. Run status: `QUARANTINED`. No agents run; shown as "Quarantined, no agents needed". |
 
 > **Note**: Both `case_invalid_email.json` and `case_duplicate_ids.json` previously caused full pipeline failures and escalations. After the Pydantic validation and hybrid quarantine refactoring, these now complete as partial successes — isolating only the bad rows.
 
@@ -411,8 +472,8 @@ Open the dashboard and run these testing scenarios:
 | Test DB File | Expected Behavior | Explanation |
 |:---|:---|:---|
 | `healthy.db` | **Success** | Validates table structures and completes aggregation cleanly. |
-| `sql_error.db` | **Failure → Escalated** | Missing `status_code` column; LangGraph attempts SQL patch but escalates to on-call if repair bounds are exceeded. |
-| `referential_integrity.db` | **Failed → Healed** | All device IDs are NULL; quarantined by Pipeline B. LangGraph `QUARANTINE` directive resolves the incident. Run status: `HEALED`. |
+| `sql_error.db` | **Failure → Escalated** | Missing `status_code` column with no equivalent. Gemini is instructed to answer `UNRESOLVABLE` instead of inventing values; if it ignores that and returns a faked query, the SQL guard rejects it. Either way the incident is escalated and no metrics are written. |
+| `referential_integrity.db` | **Failed → Quarantined** | All device IDs are NULL; every row is quarantined. LangGraph `QUARANTINE` directive resolves the incident. Run status: `QUARANTINED` (0 rows loaded, so not `HEALED`). |
 | `missing_table.db` | **Failure → Escalated** | Table `device_telemetry` not found; requires manual infrastructure setup. |
 
 ---
@@ -437,19 +498,102 @@ Open the dashboard and run these testing scenarios:
 
 ---
 
+## Automated Tests
+
+```powershell
+venv\Scripts\python -m pytest test
+```
+
+The suite has **188 tests** and needs no Gemini key or network:
+
+- **Unit tests** (`test_recovery.py`): alias and fuzzy matching, fix-validation whitelist.
+- **SQL guard tests** (`test_sql_guard.py`): one test per rule. Rejects constants, `NULL`, dropped outputs, unknown columns, other tables, `DELETE`/`ATTACH`/multiple statements, the `* 0` trick, any other formula change, and real-but-wrong columns; accepts a real rename even with different spacing or capitals.
+- **End-to-end tests** (`test_healing_e2e.py`): run the real FastAPI endpoints and LangGraph workflow, with Gemini replaced by a fake model whose answer each test controls. `conftest.py` sets `EHA_DB_DIR` to a temporary folder, so your real `database/` files are never touched. They check that:
+  - a multi-drift file is `HEALED` **and** saves 10 rows;
+  - an unresolvable drift or an `UNRESOLVABLE` SQL answer is escalated and saves nothing;
+  - the SQL-repair prompt no longer asks for substitute constants;
+  - a failed SQL fix or file repair creates exactly **one** incident (no nested healing);
+  - the per-run cap escalates before any LLM call;
+  - an all-rows-quarantined run ends as `QUARANTINED`, not `HEALED`;
+  - if Gemini **ignores the prompt** and returns a faked query, the SQL guard escalates it and nothing is written;
+  - the `http_status * 0` trick is escalated and nothing is written;
+  - a real column rename (`status_code` → `http_status`) still heals, with correct error rates.
+- **Security tests** (`test_security.py`): path-trick names are refused before any file is opened; uploads over the limit get `413`; a JSON repair that changes, adds or invents a value is escalated; the Gemini warning is on the dashboard; harmless column names are allowed and anything but one `SELECT` is blocked. One test starts the real server, uploads a file with a hidden script, and opens the dashboard in Chromium to check the script never runs. It needs Playwright and is skipped if Playwright is not installed.
+
+- **Login tests** (`test_auth.py`): no key or a wrong key gets `401`; a viewer can read, run presets and upload, but gets `403` on Clear History and the telemetry API; the viewer upload limit and run limit work; **Try all** counts as one run, its token can't be reused or faked, and uploads never get a free run; no keys means open locally and locked on Vercel. A real-browser test logs in with a wrong key, then the viewer key, runs a preset, and logs out. Tests never use keys from your `.env`.
+- **React dashboard tests** (`test_frontend_react.py`): start the real backend with login keys and a fake Gemini that tries to fake a SQL value, then click through the built app in Chromium: wrong key, viewer login and logout, admin-only Clear history (also shown in Open mode, where everyone is admin), a two-column drift that heals, the cheating SQL shown as **Blocked by guard**, an uploaded script shown as text and never run, no sideways scrolling on a 390 px phone screen, and no focus box around the whole page after switching tabs, clicking an agent circle shows what it did (also by keyboard), the PDF and JSON report buttons download real files, a viewer can press **Try all** to run all 13 presets without hitting the run limit, escalations read in plain words with the raw error behind **Technical error**, the Records tabs show 20 rows with **Show more**, the incident filters work, and on a phone the Try all results list stays in view. Skipped if Playwright is not installed or `frontend/dist` is not built.
+- **Lockout and shared-limit tests** (`test_lockout_and_shared_limits.py`): wrong keys lock a visitor out (even the right key is refused until the window passes), a missing key is not counted, a faked `x-forwarded-for` can't dodge it locally; and with **two real server copies on one database** the run limit, lockout and Try all tokens are shared, and survive a restart.
+- **Incident filter tests** (`test_incident_filters.py`): filter by outcome (healed, quarantined, escalated, in progress), by pipeline, and by search text, together with paging; `%` and `_` are searched as normal letters; unknown values get `422`.
+- **Records paging tests** (`test_records_paging.py`): `/api/quarantine` and `/api/escalations` return one page newest first with the total in `X-Total-Count`; only the escalations on the page get their plain-English text; bad values get `422`.
+- **Agent path tests** (`test_agent_paths.py`): for each of the 13 presets, the exact path through the graph (including the retry loop), the number of Gemini calls, and the final result; Recovery's prompts include the RCA analysis; a field missing in some rows quarantines those rows, missing in every row is schema drift.
+- **Crash tests** (`test_crash_escalates.py`): if healing crashes (a missing package, a broken actuator), the incident becomes ESCALATED with a "Healing crashed" audit line and a plain-English reason, instead of staying OPEN for ever; an already finished incident is left alone; a Gemini outage is handled by the agents themselves.
+- **Escalations-from-database tests** (`test_escalations_from_db.py`): the Escalations tab lists exactly the incidents with status ESCALATED (same as the Incident log's Escalated filter), no text file is written, escalations made without any agent are listed too, Clear history empties the list, and **two server copies on one database** show the same escalations.
+- **Escalation text tests** (`test_escalation_text.py`): each escalation gets a plain summary and a "why" (missing column or table, broken JSON, guard block, Gemini refusing to guess); the raw error is kept.
+- **Report tests** (`test_report.py`): `GET /api/incidents/{id}/report?format=json|pdf` returns the incident and its audit trail; the PDF is a real PDF even with emoji or curly quotes in Gemini's text; unknown incident `404`, bad format `422`, no key `401`, viewers may download.
+- **Paging tests** (`test_paging.py`): `/api/incidents` returns one page (`limit`, `offset`) newest first with the total in `X-Total-Count`; bad values get `422`; the dashboard shows "20 of N" and **Show more** loads 20 more.
+- **Live flow tests** (`test_live.py`): with a fake Gemini that takes 4 seconds, the API still answers mid-run (it used to freeze), two runs at once take turns without mixing files, and the dashboard shows the new incident and lights up agent steps while the run is still in progress (Replay stays hidden until the run ends).
+
+See [`CHANGES.md`](CHANGES.md) for what each fix does and why.
+
+---
+
+## Security
+
+| Protection | What it does |
+|:---|:---|
+| Login keys | Every API request needs a key in the `X-Access-Key` header. **Viewer** key: see everything, run presets, upload own files (1 MB, 10 runs/minute). **Admin** key: everything, including Clear History and the telemetry API. |
+| Wrong-key lockout | 10 wrong keys from one visitor within 15 minutes (`EHA_MAX_FAILED_KEYS`, `EHA_LOCKOUT_MINUTES`) locks that visitor out with `429` until the 15 minutes pass, even if they then send the right key. A missing key is not counted. |
+| Shared limits | The viewer run limit, the lockout and the **Try all** tokens are stored in the database, so a restart does not reset them and every server copy on Vercel counts together. |
+| Test file allowlist | `test_case` must be the name of a real file in `test_data/pipeline_A` or `pipeline_B`. Paths such as `../../.env` or `/etc/passwd` are refused before anything is opened. |
+| Upload size limit | Uploads over 5 MB (`EHA_MAX_UPLOAD_MB`) are refused with `413` before they are read. |
+| Plain-text dashboard | Every value from the server or an uploaded file is escaped in `public/app.js`, so hidden scripts show as text instead of running. |
+| JSON repair check | Gemini's repaired file must keep every key and value unchanged; hidden instructions such as "change every email" cannot alter the data. |
+| SQL guard | Repaired SQL must be a single `SELECT` that only renames a missing column to an approved name. |
+| Column-name check | Column-name fixes may only contain letters, numbers and `_`. |
+
+> **Privacy**: if an uploaded JSON file has broken syntax, its **full contents are sent to Google Gemini** for repair. Do not upload real personal data. The dashboard shows the same warning next to the upload box.
+
+### Setting up the keys
+
+You create the keys yourself; they are never stored in the code.
+
+1. Generate two random keys (run the command twice):
+   ```powershell
+   venv\Scripts\python -c "import secrets; print(secrets.token_urlsafe(32))"
+   ```
+2. Put them in your `.env` file (git ignores it):
+   ```
+   EHA_ADMIN_KEY=first-key
+   EHA_VIEWER_KEY=second-key
+   ```
+3. Restart the platform. The dashboard now shows a login box.
+4. Share the **viewer** key with interviewers. Keep the **admin** key to yourself.
+
+| Keys set? | Local | Vercel |
+|:---|:---|:---|
+| No | Open, no login (a warning is logged) | Fully locked |
+| Yes | Login required | Login required (add the keys under Vercel → Settings → Environment Variables) |
+
+If a key leaks, generate a new one and replace it; the old one stops working at once.
+
+> **Visitor address**: limits are counted per visitor IP. On Vercel it is read from `x-forwarded-for`, which Vercel sets; locally that header is ignored so it can't be faked to dodge the limits. People behind the same network (e.g. one office) share one count.
+
+---
+
 ## Tech Stack
 
 | Layer | Technology |
 |:---|:---|
 | Backend API | FastAPI (Python 3.12) |
 | Multi-Agent Orchestration | LangGraph |
-| LLM Provider | Google Gemini (`gemini-2.5-flash`) |
+| LLM Provider | Google Gemini (`gemini-3.5-flash-lite`) |
 | Local Database | SQLite 3 |
 | Cloud Database | Neon Postgres (via `pg8000`) |
-| Frontend Dashboard | HTML5, Vanilla JS, Tailwind CSS |
-| Local Dashboard (Alt) | Streamlit |
+| Frontend Dashboard | React 18, Vite, TypeScript, Tailwind CSS (`frontend/`); original HTML/JS version in `public/` |
 | Structured Logging | structlog |
 | Data Validation | **Pydantic v2** (`CustomerRecord` model with field validators) |
+| LLM SQL Safety Check | **sqlglot** (parses and compares queries before they run) |
+| PDF Reports | **fpdf2** (incident report download) |
 | Cloud Hosting | Vercel (Serverless Python) |
 | Dependency Management | `uv` / `pip` |
 
@@ -462,16 +606,89 @@ Open the dashboard and run these testing scenarios:
 | `GOOGLE_API_KEY` | Yes | Google Gemini API key for LLM-powered agents |
 | `POSTGRES_URL` | Auto-injected | Vercel Neon Postgres connection string (auto-set by Vercel Storage) |
 | `VERCEL` | Auto-injected | Set to `"1"` by Vercel runtime to signal serverless environment |
+| `EHA_DB_DIR` | Optional | Folder for all SQLite databases. Set automatically by the test suite; leave unset for normal use |
+| `EHA_MAX_UPLOAD_MB` | Optional | Maximum upload size in MB for the admin (default `5`) |
+| `EHA_ADMIN_KEY` | Recommended | Admin login key (full access). See [Setting up the keys](#setting-up-the-keys) |
+| `EHA_VIEWER_KEY` | Recommended | Viewer login key (read, run presets, upload) |
+| `EHA_VIEWER_MAX_UPLOAD_MB` | Optional | Maximum upload size in MB for viewers (default `1`) |
+| `EHA_VIEWER_RUNS_PER_MINUTE` | Optional | Pipeline runs per minute allowed per viewer (default `10`) |
+| `EHA_MAX_FAILED_KEYS` | Optional | Wrong keys allowed per visitor before a lockout (default `10`) |
+| `EHA_LOCKOUT_MINUTES` | Optional | How long the lockout window is, in minutes (default `15`) |
+| `EHA_UI` | Optional | Set to `legacy` to serve the original HTML dashboard even when the React app is built |
 
 ---
 
 ### LLM Quota & Rate Limits
 
-This project utilizes the **Google Gemini 2.5 Flash** (`gemini-2.5-flash`) model for multi-agent reasoning, self-healing runbook execution, and code/SQL repair. Under the Gemini API free tier, the following rate limits apply:
-- **Requests Per Minute (RPM)**: 15 to 30 RPM
-- **Requests Per Day (RPD)**: 1,500 RPD
+This project utilizes the **Google Gemini 3.5 Flash-Lite** (`gemini-3.5-flash-lite`) model (it replaced `gemini-2.5-flash`, which Google no longer offers to new API keys; Flash-Lite was chosen for its much higher free-tier limits) for multi-agent reasoning, self-healing runbook execution, and code/SQL repair. Under the Gemini API free tier, the following rate limits apply:
+- **Requests Per Minute (RPM)**: about 15 (reported for the 3.x Flash-Lite free tier)
+- **Requests Per Day (RPD)**: about 500 (reported for the 3.x Flash-Lite free tier)
+- Google no longer publishes these numbers per model and they change over time, so check your own key on the [AI Studio rate-limit page](https://aistudio.google.com/rate-limit).
+- One full run of the 13 presets uses only **5 Gemini calls**, because 10 presets are handled by rules.
 
 If these thresholds are exceeded, the API returns a `RESOURCE_EXHAUSTED` (HTTP 429) error, and the platform will gracefully transition the active incident status to `ESCALATED` to notify human operators.
+
+---
+
+## Measured Results
+
+The table below is written by `scripts/measure.py`, not by hand. The script starts a real local server
+(with a throw-away database), runs all 13 presets against it with real Gemini, records the result, the
+path through the agent graph, the number of Gemini calls and the time for each one, and repeats the whole
+suite 3 times because Gemini can answer differently each time. It then replaces everything between the two
+markers with the new table, including the date and the model name. To refresh it:
+
+```powershell
+venv\Scripts\python.exe scripts/measure.py              # 3 runs, updates this table (about 5 Gemini calls per run)
+venv\Scripts\python.exe scripts/measure.py --runs 1     # cheaper: the free tier allows only about 20 requests a day
+venv\Scripts\python.exe scripts/measure.py --no-write   # print the table without touching README.md
+```
+
+<!-- MEASURED-RESULTS:START (written by scripts/measure.py, do not edit by hand) -->
+_Measured 2026-10-09 (UTC) with `gemini-3.5-flash-lite`, real local server, real Gemini, 1 run. Generated by `scripts/measure.py`; raw numbers in `scripts/measure_last_run.json`._
+
+**13/13 presets behaved as expected in 1 of 1 runs.**
+
+| Preset | Result | Path through the graph | Gemini calls | Time, median (range) | As expected |
+|:---|:---|:---|:---:|:---:|:---:|
+| `case_healthy.json` | success | no agents (validation only) | 0 | 0.15 s (0.15 s–0.15 s) | 1/1 |
+| `case_drift_country.json` | healed | Monitor → Classifier → Recovery → Apply → Verify | 0 | 1.5 s (1.5 s–1.5 s) | 1/1 |
+| `case_drift_email.json` | healed | Monitor → Classifier → Recovery → Apply → Verify | 0 | 0.85 s (0.85 s–0.85 s) | 1/1 |
+| `case_drift_id.json` | healed | Monitor → Classifier → Recovery → Apply → Verify | 0 | 0.60 s (0.60 s–0.60 s) | 1/1 |
+| `case_drift_multi.json` | healed | Monitor → Classifier → Recovery → Apply → Verify → Recovery → Apply → Verify | 0 | 0.81 s (0.81 s–0.81 s) | 1/1 |
+| `case_invalid_root.json` | healed | Monitor → Classifier → Recovery → Apply → Verify | 0 | 0.62 s (0.62 s–0.62 s) | 1/1 |
+| `case_malformed_syntax.json` | healed + 1 quarantined | Monitor → Classifier → RCA → Recovery → Apply → Verify | 2 | 7.2 s (7.2 s–7.2 s) | 1/1 |
+| `case_invalid_email.json` | quarantined | no agents (validation only) | 0 | 0.15 s (0.15 s–0.15 s) | 1/1 |
+| `case_duplicate_ids.json` | quarantined | no agents (validation only) | 0 | 0.13 s (0.13 s–0.13 s) | 1/1 |
+| `healthy.db` | success | no agents (validation only) | 0 | 0.14 s (0.14 s–0.14 s) | 1/1 |
+| `sql_error.db` | escalated | Monitor → Classifier → RCA → Recovery → Escalate | 2 | 5.6 s (5.6 s–5.6 s) | 1/1 |
+| `referential_integrity.db` | quarantined (all rows) | Monitor → Classifier → Recovery → Apply → Verify | 0 | 0.29 s (0.29 s–0.29 s) | 1/1 |
+| `missing_table.db` | escalated | Monitor → Classifier → RCA → Escalate | 1 | 2.1 s (2.1 s–2.1 s) | 1/1 |
+
+_Time is the wall time of the API request, including the healing. Gemini calls are counted at the LangChain level (a retry inside one call is not counted). "As expected" means the result, the path and the number of Gemini calls all match the design in `test/test_agent_paths.py`._
+<!-- MEASURED-RESULTS:END -->
+
+---
+
+## History (old results, kept for context, not regenerated)
+
+The earlier hand-written fault-injection table (2026-09-02) was removed: it was measured before the
+healing-status fixes and several of its outcomes were wrong on the current code. Git history still has it.
+
+### Healing-status fix verification (2026-09-27, one-off comparison with a fake Gemini)
+
+All 13 test files were replayed on the code before and after the healing-status fixes, using the same fake Gemini model in both runs (it repairs JSON correctly, and for SQL it returns a query that replaces `status_code` with the constant `0` unless the prompt allows `UNRESOLVABLE`). Only three outcomes changed:
+
+| Test file | Before the fix | After the fix |
+|:---|:---|:---|
+| `case_drift_multi.json` | Reported `HEALED`, **0 rows** saved | `HEALED`, **10 rows** saved |
+| `sql_error.db` | Reported `HEALED` with a **fabricated `error_rate` of 0** | `ESCALATED`, nothing written |
+| `referential_integrity.db` | Reported `HEALED`, 0 rows loaded | `QUARANTINED`, 0 rows loaded |
+
+The other 10 files behaved identically. In the same harness, a JSON file whose LLM repair still failed previously spawned **157** nested incidents; it now produces exactly one escalated incident.
+
+> **SQL guard (added after this table)**: the prompt fix above only *asks* Gemini not to invent values. The SQL guard now also checks the repaired query before it runs, so a faked query is rejected even if Gemini ignores the prompt (covered by `test_gemini_ignoring_the_prompt_is_caught`). It also allows only pure renames to approved names, so formula tricks such as `http_status * 0` are blocked too (`test_times_zero_trick_is_caught`). **Trade-off**: a correct rename with a cosmetic change (e.g. a dropped `AS error_rate` label), or a rename not on the approved list, is escalated to a human instead of healed.
+
 
 ---
 

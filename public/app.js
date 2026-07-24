@@ -4,6 +4,111 @@ const API_BASE = '/api';
 // State parameters
 let selectedIncidentId = null;
 
+// ---------------------------------------------------------------------------
+// Login (see src/api/auth.py). The key is kept only for this browser tab
+// (sessionStorage) and is sent with every API request in the X-Access-Key header.
+// ---------------------------------------------------------------------------
+const KEY_STORAGE = 'eha_access_key';
+let pollTimer = null;
+
+function getKey() {
+    try { return sessionStorage.getItem(KEY_STORAGE) || ''; } catch (e) { return ''; }
+}
+function setKey(key) {
+    try {
+        if (key) sessionStorage.setItem(KEY_STORAGE, key);
+        else sessionStorage.removeItem(KEY_STORAGE);
+    } catch (e) { /* storage blocked: the user just has to log in again */ }
+}
+
+// All API calls go through here: adds the key, and shows the login box on 401.
+async function apiFetch(url, options = {}) {
+    const headers = new Headers(options.headers || {});
+    const key = getKey();
+    if (key) headers.set('X-Access-Key', key);
+    const res = await fetch(url, { ...options, headers });
+    if (res.status === 401) {
+        stopPolling();
+        showLogin('Please log in again.');
+        throw new Error('Not logged in');
+    }
+    return res;
+}
+
+function showLogin(message = '') {
+    document.getElementById('login-overlay').hidden = false;
+    const err = document.getElementById('login-error');
+    err.textContent = message;
+    err.hidden = !message;
+    document.getElementById('login-key').focus();
+}
+
+function applyRole(info) {
+    const badge = document.getElementById('role-badge');
+    badge.textContent = info.auth_enabled ? `Logged in: ${info.role}` : 'Open mode (no login set)';
+    badge.hidden = false;
+    document.getElementById('btn-logout').hidden = !info.auth_enabled;
+    // Clear History is admin-only: hide it for viewers (the server also refuses it).
+    document.getElementById('btn-clear-history').hidden = info.role !== 'admin';
+}
+
+async function checkLogin() {
+    const res = await fetch(`${API_BASE}/whoami`, { headers: getKey() ? { 'X-Access-Key': getKey() } : {} });
+    if (!res.ok) return null;
+    return res.json();
+}
+
+function stopPolling() {
+    if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
+}
+
+function startDashboard(info) {
+    document.getElementById('login-overlay').hidden = true;
+    applyRole(info);
+    refreshData();
+    stopPolling();
+    pollTimer = setInterval(refreshData, 3000);
+}
+
+async function boot() {
+    const info = await checkLogin().catch(() => null);
+    if (info) startDashboard(info);
+    else showLogin(getKey() ? 'Please log in again.' : '');
+}
+
+document.addEventListener('submit', async (event) => {
+    if (event.target.id !== 'login-form') return;
+    event.preventDefault();
+    const input = document.getElementById('login-key');
+    setKey(input.value.trim());
+    const info = await checkLogin().catch(() => null);
+    if (info) {
+        input.value = '';
+        startDashboard(info);
+    } else {
+        setKey('');
+        showLogin('Wrong key. Try again.');
+    }
+});
+
+function logout() {
+    setKey('');
+    stopPolling();
+    location.reload();
+}
+
+// Security fix 3 (script injection): every value that comes from the server or from an
+// uploaded file goes through esc() before it is put into HTML, so it shows as plain text
+// and can never run as code in the browser.
+function esc(value) {
+    return String(value ?? '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+}
+
 // Reusable Toast Notification System
 function showToast(message, type = 'info') {
     const container = document.getElementById('toast-container');
@@ -54,7 +159,7 @@ function showToast(message, type = 'info') {
         <div class="${iconColor} mt-0.5 flex-shrink-0">
             ${iconSvg}
         </div>
-        <div class="flex-1 text-xs font-semibold text-slate-200 leading-normal">${message}</div>
+        <div class="flex-1 text-xs font-semibold text-slate-200 leading-normal">${esc(message)}</div>
         <button class="text-slate-400 hover:text-slate-200 focus:outline-none flex-shrink-0 transition ml-1 cursor-pointer" onclick="dismissToast(this)">
             <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
@@ -97,7 +202,7 @@ function updateFilename(inputId, labelId) {
     const input = document.getElementById(inputId);
     const label = document.getElementById(labelId);
     if (input.files && input.files.length > 0) {
-        label.innerHTML = `<span class="font-semibold text-slate-200">Selected file:</span> ${input.files[0].name}`;
+        label.innerHTML = `<span class="font-semibold text-slate-200">Selected file:</span> ${esc(input.files[0].name)}`;
     } else {
         label.innerHTML = `<span class="font-semibold">Click to upload</span> or drag and drop`;
     }
@@ -106,7 +211,7 @@ function updateFilename(inputId, labelId) {
 // Fetch Metrics from Control Plane
 async function fetchMetrics() {
     try {
-        const res = await fetch(`${API_BASE}/metrics`);
+        const res = await apiFetch(`${API_BASE}/metrics`);
         if (!res.ok) throw new Error("Failed to fetch metrics");
         const data = await res.json();
         
@@ -125,7 +230,7 @@ async function fetchMetrics() {
 // Fetch Incidents list
 async function fetchIncidents() {
     try {
-        const res = await fetch(`${API_BASE}/incidents`);
+        const res = await apiFetch(`${API_BASE}/incidents`);
         if (!res.ok) throw new Error("Failed to fetch incidents");
         const incidents = await res.json();
         
@@ -152,7 +257,7 @@ async function fetchIncidents() {
             } else if (inc.status === 'ESCALATED') {
                 statusBadge = '<span class="px-2 py-0.5 rounded text-[10px] font-bold bg-rose-500/10 text-rose-400 border border-rose-500/20">ESCALATED</span>';
             } else {
-                statusBadge = `<span class="px-2 py-0.5 rounded text-[10px] font-bold bg-slate-800 text-slate-400">${inc.status}</span>`;
+                statusBadge = `<span class="px-2 py-0.5 rounded text-[10px] font-bold bg-slate-800 text-slate-400">${esc(inc.status)}</span>`;
             }
             
             // Severity badges
@@ -164,7 +269,7 @@ async function fetchIncidents() {
             } else if (inc.severity === 'P2' || inc.severity === 'MEDIUM') {
                 severityBadge = '<span class="px-1.5 py-0.5 rounded text-[10px] font-bold bg-amber-500/20 text-amber-400">P2</span>';
             } else {
-                severityBadge = `<span class="px-1.5 py-0.5 rounded text-[10px] font-bold bg-slate-800 text-slate-400">${inc.severity}</span>`;
+                severityBadge = `<span class="px-1.5 py-0.5 rounded text-[10px] font-bold bg-slate-800 text-slate-400">${esc(inc.severity)}</span>`;
             }
 
             const errorClassClean = inc.error_class || 'None';
@@ -178,16 +283,16 @@ async function fetchIncidents() {
 
             return `
                 <tr class="transition duration-150 ${bgClass}">
-                    <td class="p-4 font-mono font-bold text-indigo-300 select-all">${inc.incident_id}</td>
-                    <td class="p-4 font-semibold">${inc.pipeline_id}</td>
+                    <td class="p-4 font-mono font-bold text-indigo-300 select-all">${esc(inc.incident_id)}</td>
+                    <td class="p-4 font-semibold">${esc(inc.pipeline_id)}</td>
                     <td class="p-4">${severityBadge}</td>
-                    <td class="p-4 font-mono text-[10px] text-slate-400">${inc.category}</td>
+                    <td class="p-4 font-mono text-[10px] text-slate-400">${esc(inc.category)}</td>
                     <td class="p-4">${statusBadge}</td>
-                    <td class="p-4 font-mono text-[10px] text-slate-400">${errorClassClean}</td>
-                    <td class="p-4 text-slate-300 max-w-xs truncate" title="${inc.error_message || ''}">${errorMsgClean}</td>
-                    <td class="p-4 text-slate-300 max-w-xs truncate" title="${inc.root_cause || ''}">${rootCauseClean}</td>
+                    <td class="p-4 font-mono text-[10px] text-slate-400">${esc(errorClassClean)}</td>
+                    <td class="p-4 text-slate-300 max-w-xs truncate" title="${esc(inc.error_message)}">${esc(errorMsgClean)}</td>
+                    <td class="p-4 text-slate-300 max-w-xs truncate" title="${esc(inc.root_cause)}">${esc(rootCauseClean)}</td>
                     <td class="p-4 text-center">
-                        <button onclick="selectIncident('${inc.incident_id}')" class="bg-indigo-600/10 hover:bg-indigo-600/30 text-indigo-400 border border-indigo-500/20 font-bold py-1 px-3 rounded text-[11px] transition cursor-pointer">
+                        <button data-incident-id="${esc(inc.incident_id)}" class="bg-indigo-600/10 hover:bg-indigo-600/30 text-indigo-400 border border-indigo-500/20 font-bold py-1 px-3 rounded text-[11px] transition cursor-pointer">
                             Audit
                         </button>
                     </td>
@@ -218,13 +323,13 @@ async function selectIncident(incidentId) {
 async function fetchAuditLogs(incidentId) {
     if (!incidentId) return;
     try {
-        const res = await fetch(`${API_BASE}/incidents/${incidentId}/audit`);
+        const res = await apiFetch(`${API_BASE}/incidents/${incidentId}/audit`);
         if (!res.ok) throw new Error("Failed to fetch audit trail");
         const trail = await res.json();
         
         const container = document.getElementById('audit-logs-container');
         if (trail.length === 0) {
-            container.innerHTML = `<div class="text-center py-12 text-slate-500 text-xs">No audit logs recorded for incident ${incidentId}.</div>`;
+            container.innerHTML = `<div class="text-center py-12 text-slate-500 text-xs">No audit logs recorded for incident ${esc(incidentId)}.</div>`;
             return;
         }
         
@@ -253,10 +358,10 @@ async function fetchAuditLogs(incidentId) {
             return `
                 <div class="p-4 border-l-4 rounded bg-slate-900/40 border border-slate-900 ${colorClass.split(' ')[0]} space-y-2">
                     <div class="flex justify-between items-center">
-                        <span class="font-bold tracking-wide uppercase text-[11px] ${colorClass.split(' ')[1]}">${comp}</span>
-                        <span class="text-[10px] text-slate-500">${formattedTs}</span>
+                        <span class="font-bold tracking-wide uppercase text-[11px] ${colorClass.split(' ')[1]}">${esc(comp)}</span>
+                        <span class="text-[10px] text-slate-500">${esc(formattedTs)}</span>
                     </div>
-                    <div class="font-mono text-slate-300 text-[11px] leading-relaxed whitespace-pre-wrap">${step.message}</div>
+                    <div class="font-mono text-slate-300 text-[11px] leading-relaxed whitespace-pre-wrap">${esc(step.message)}</div>
                 </div>
             `;
         }).join('');
@@ -268,7 +373,7 @@ async function fetchAuditLogs(incidentId) {
 // Fetch Human Escalations
 async function fetchEscalations() {
     try {
-        const res = await fetch(`${API_BASE}/escalations`);
+        const res = await apiFetch(`${API_BASE}/escalations`);
         if (!res.ok) throw new Error("Failed to fetch escalations");
         const list = await res.json();
         
@@ -288,10 +393,10 @@ async function fetchEscalations() {
             return `
                 <div class="p-4 rounded-xl border border-rose-500/10 bg-rose-500/5 space-y-2">
                     <div class="flex justify-between items-center">
-                        <span class="font-mono font-bold text-rose-400 select-all">${item.incident_id}</span>
-                        <span class="text-[10px] text-slate-500">${formattedTs}</span>
+                        <span class="font-mono font-bold text-rose-400 select-all">${esc(item.incident_id)}</span>
+                        <span class="text-[10px] text-slate-500">${esc(formattedTs)}</span>
                     </div>
-                    <p class="text-slate-300 leading-normal text-[11px]">${item.reason}</p>
+                    <p class="text-slate-300 leading-normal text-[11px]">${esc(item.reason)}</p>
                 </div>
             `;
         }).join('');
@@ -303,7 +408,7 @@ async function fetchEscalations() {
 // Fetch Quarantined Records list
 async function fetchQuarantine() {
     try {
-        const res = await fetch(`${API_BASE}/quarantine`);
+        const res = await apiFetch(`${API_BASE}/quarantine`);
         if (!res.ok) throw new Error("Failed to fetch quarantined records");
         const list = await res.json();
         
@@ -338,13 +443,13 @@ async function fetchQuarantine() {
             
             return `
                 <tr class="hover:bg-slate-900/40 transition duration-150 border-b border-slate-900">
-                    <td class="p-4 font-bold text-indigo-300 select-all">${item.quarantine_id}</td>
-                    <td class="p-4 font-sans font-semibold">${item.pipeline_id}</td>
-                    <td class="p-4 select-all text-slate-400">${item.run_id}</td>
-                    <td class="p-4 font-sans text-slate-450">${item.record_type}</td>
-                    <td class="p-4 text-slate-350 max-w-xs truncate" title='${rawRecordStr}'>${rawRecordTrunc}</td>
-                    <td class="p-4 text-rose-400 max-w-xs truncate font-sans" title="${errorsStr}">${errorsStr}</td>
-                    <td class="p-4 text-slate-500">${formattedTs}</td>
+                    <td class="p-4 font-bold text-indigo-300 select-all">${esc(item.quarantine_id)}</td>
+                    <td class="p-4 font-sans font-semibold">${esc(item.pipeline_id)}</td>
+                    <td class="p-4 select-all text-slate-400">${esc(item.run_id)}</td>
+                    <td class="p-4 font-sans text-slate-450">${esc(item.record_type)}</td>
+                    <td class="p-4 text-slate-350 max-w-xs truncate" title="${esc(rawRecordStr)}">${esc(rawRecordTrunc)}</td>
+                    <td class="p-4 text-rose-400 max-w-xs truncate font-sans" title="${esc(errorsStr)}">${esc(errorsStr)}</td>
+                    <td class="p-4 text-slate-500">${esc(formattedTs)}</td>
                 </tr>
             `;
         }).join('');
@@ -357,7 +462,8 @@ async function fetchQuarantine() {
 async function clearHistory() {
     if (!confirm("Are you sure you want to completely clear the control plane databases, incident history, and escalations list?")) return;
     try {
-        const res = await fetch(`${API_BASE}/history/clear`, { method: 'POST' });
+        const res = await apiFetch(`${API_BASE}/history/clear`, { method: 'POST' });
+        if (res.status === 403) throw new Error("only the admin can clear history");
         if (!res.ok) throw new Error("Failed to clear history");
         const data = await res.json();
         
@@ -402,7 +508,7 @@ async function runPipelineA() {
     resultBox.textContent = "Executing Ingestion Pipeline A... Please wait...";
     
     try {
-        const res = await fetch(`${API_BASE}/pipelines/a/execute`, {
+        const res = await apiFetch(`${API_BASE}/pipelines/a/execute`, {
             method: 'POST',
             body: formData
         });
@@ -476,7 +582,7 @@ async function runPipelineB() {
     resultBox.textContent = "Executing Ingestion Pipeline B... Please wait...";
     
     try {
-        const res = await fetch(`${API_BASE}/pipelines/b/execute`, {
+        const res = await apiFetch(`${API_BASE}/pipelines/b/execute`, {
             method: 'POST',
             body: formData
         });
@@ -531,8 +637,12 @@ function refreshData() {
     }
 }
 
-// Run Initial loads
-refreshData();
+// "Audit" buttons: read the id from a data attribute instead of building JavaScript
+// code out of server data inside an onclick="" attribute.
+document.addEventListener('click', (event) => {
+    const btn = event.target.closest('[data-incident-id]');
+    if (btn) selectIncident(btn.dataset.incidentId);
+});
 
-// Poll metrics and incident queues every 3 seconds
-setInterval(refreshData, 3000);
+// Start: check the login first, then load data and poll every 3 seconds.
+boot();

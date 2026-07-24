@@ -89,3 +89,15 @@ Thumbs.db
 *.blg
 *.zip
 
+
+# --- React frontend (build output and packages) ---
+frontend/node_modules/
+frontend/dist/
+
+# local junk
+.fuse_hidden*
+_stage_eha.tar.gz
+Claude outputs/
+
+# the frontend's own lib folder is source code, not a Python build folder
+!frontend/src/lib/
