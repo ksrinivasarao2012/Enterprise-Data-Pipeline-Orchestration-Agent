@@ -2,6 +2,7 @@
 Key lockout and database-backed limits (CHANGES.md section 19).
 
 1. Lockout: too many wrong keys from one client locks it out for a while, even with the right key.
+   (Only the admin key for scripts is a key now; people sign in with Google, CHANGES.md section 31.)
 2. The viewer run limit, the lockout and "Try all" grants are stored in the database, so they
    survive a restart and are shared by several server copies (like Vercel starts).
 """
@@ -14,7 +15,10 @@ import time
 
 import pytest
 
-ADMIN, VIEWER = "admin-lock-key", "viewer-lock-key"
+from conftest import GOOGLE_CLIENT, SESSION_SECRET, session_headers
+
+ADMIN = "admin-lock-key"
+ANN = session_headers("ann@example.com")   # a viewer signed in with Google (login cookie)
 
 
 def h(key, ip=None):
@@ -27,7 +31,6 @@ def h(key, ip=None):
 @pytest.fixture
 def keys_on(monkeypatch):
     monkeypatch.setenv("EHA_ADMIN_KEY", ADMIN)
-    monkeypatch.setenv("EHA_VIEWER_KEY", VIEWER)
 
 
 # ---------------------------------------------------------------- lockout (in-process)
@@ -60,7 +63,7 @@ def test_no_key_is_not_counted_as_a_guess(client, keys_on, monkeypatch):
     monkeypatch.setattr(auth, "MAX_FAILED_KEYS", 2)
     for _ in range(5):  # the login screen asks "am I logged in?" without a key
         assert client.get("/api/whoami").status_code == 401
-    assert client.get("/api/metrics", headers=h(VIEWER)).status_code == 200
+    assert client.get("/api/metrics", headers=h(ADMIN)).status_code == 200
 
 
 def test_lockout_is_per_client_on_vercel(client, keys_on, monkeypatch):
@@ -69,8 +72,8 @@ def test_lockout_is_per_client_on_vercel(client, keys_on, monkeypatch):
     monkeypatch.setattr(auth, "MAX_FAILED_KEYS", 2)
     for _ in range(2):
         client.get("/api/metrics", headers=h("guess", "1.1.1.1"))
-    assert client.get("/api/metrics", headers=h(VIEWER, "1.1.1.1")).status_code == 429
-    assert client.get("/api/metrics", headers=h(VIEWER, "2.2.2.2")).status_code == 200
+    assert client.get("/api/metrics", headers=h(ADMIN, "1.1.1.1")).status_code == 429
+    assert client.get("/api/metrics", headers=h(ADMIN, "2.2.2.2")).status_code == 200
 
 
 def test_made_up_forwarded_header_is_ignored_locally(client, keys_on, monkeypatch):
@@ -115,7 +118,8 @@ class Copies:
         import requests
         root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
         port = _free_port()
-        env = dict(os.environ, EHA_DB_DIR=self.db, PYTHONPATH=root, EHA_ADMIN_KEY=ADMIN, EHA_VIEWER_KEY=VIEWER,
+        env = dict(os.environ, EHA_DB_DIR=self.db, PYTHONPATH=root, EHA_ADMIN_KEY=ADMIN, GOOGLE_CLIENT_ID=GOOGLE_CLIENT,
+                   EHA_SESSION_SECRET=SESSION_SECRET,
                    EHA_VIEWER_RUNS_PER_MINUTE="2", EHA_MAX_FAILED_KEYS="3", GOOGLE_API_KEY="x", EHA_UI="")
         env.pop("VERCEL", None)
         proc = subprocess.Popen([sys.executable, self.script, root, str(port)], cwd=root, env=env,
@@ -149,21 +153,21 @@ def copies():
     c.close()
 
 
-def _run(base, key, extra=None):
+def _run(base, who, extra=None):
     import requests
-    return requests.post(base + "/api/pipelines/a/execute", headers={**h(key), **(extra or {})},
+    return requests.post(base + "/api/pipelines/a/execute", headers={**who, **(extra or {})},
                          data={"test_case": "case_healthy.json"}, timeout=60).status_code
 
 
 def test_run_limit_is_shared_by_server_copies_and_survives_a_restart(copies):
     a, proc_a = copies.start()
     b, _ = copies.start()
-    assert _run(a, VIEWER) == 200
-    assert _run(b, VIEWER) == 200          # 2 of 2 used, across two copies
-    assert _run(a, VIEWER) == 429          # copy A knows about the run on copy B
+    assert _run(a, ANN) == 200
+    assert _run(b, ANN) == 200          # 2 of 2 used, across two copies
+    assert _run(a, ANN) == 429          # copy A knows about the run on copy B
     copies.stop(proc_a)                    # "restart"
     a2, _ = copies.start()
-    assert _run(a2, VIEWER) == 429         # the new server still remembers
+    assert _run(a2, ANN) == 429         # the new server still remembers
 
 
 def test_lockout_is_shared_by_server_copies(copies):
@@ -179,8 +183,8 @@ def test_try_all_token_works_on_any_copy_but_only_once(copies):
     import requests
     a, _ = copies.start()
     b, _ = copies.start()
-    token = requests.post(a + "/api/demo/start", headers=h(VIEWER), timeout=10).json()["token"]  # 1 of 2
+    token = requests.post(a + "/api/demo/start", headers=ANN, timeout=10).json()["token"]  # 1 of 2
     demo = {"X-Demo-Token": token}
-    assert _run(b, VIEWER, demo) == 200    # free run, used on the other copy
-    assert _run(a, VIEWER, demo) == 200    # same preset again: counted (2 of 2)
-    assert _run(b, VIEWER, demo) == 429
+    assert _run(b, ANN, demo) == 200    # free run, used on the other copy
+    assert _run(a, ANN, demo) == 200    # same preset again: counted (2 of 2)
+    assert _run(b, ANN, demo) == 429

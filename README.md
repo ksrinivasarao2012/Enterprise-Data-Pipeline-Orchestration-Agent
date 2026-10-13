@@ -17,11 +17,11 @@ An advanced, production-grade SRE (Site Reliability Engineering) automation plat
 - **Honest Healing Status** — A run is only marked `HEALED` when a verification run actually saves rows. Partial fixes, 0-row runs and unresolvable errors are escalated instead of being reported as successes. If the healing code itself crashes, the incident is escalated too, never left open.
 - **SQL Guard** — Every SQL query repaired by Gemini is checked with `sqlglot` before it runs. Only a pure column **rename** to an approved name is allowed; fake constants, formula tricks (e.g. `* 0`), wrong columns, other tables and non-`SELECT` statements are rejected and escalated.
 - **LLM-Powered File Repair** — Gemini repairs malformed JSON syntax and the pipeline retries. The repair is only accepted if every key and value is unchanged (only brackets and commas may differ); otherwise it is escalated.
-- **Security Hardening** — Login with two keys (viewer / admin; only the admin can clear history), only real test file names are accepted, uploads are capped at 5 MB, all dashboard data is shown as plain text (no script injection), and repaired SQL/JSON is checked before use. See [Security](#security).
+- **Security Hardening** — Sign in with Google; every viewer sees only their own runs (the admin sees all), only real test file names are accepted, uploads are capped at 5 MB, all dashboard data is shown as plain text (no script injection), and repaired SQL/JSON is checked before use. See [Security](#security).
 - **Hybrid Fault-Tolerance & Quarantine** — Row-level anomalies (bad email formats, duplicate IDs, null device IDs) are isolated per-row into a dedicated `quarantined_records` table. Healthy records are always ingested, and invalid records are logged for operator review — without crashing the pipeline.
 - **Pydantic v2 Validation** — All ingested customer records are validated via a typed `CustomerRecord` Pydantic model. Custom field validators handle type coercions (e.g., `5` → `"5"`), null checks, email format rules, and string normalizations before any database write.
 - **Dual-Database Architecture** — Runs locally on SQLite, and automatically switches to **Neon Postgres** when deployed to Vercel — zero code changes required.
-- **React Dashboard** — A React + Vite + TypeScript dashboard (`frontend/`) with light and dark themes, a login screen, a **live** agent flow (each step lights up as the agent finishes it), an incident timeline with "Blocked by guard" badges, and a records view. Click any agent circle to see what it did in that run (e.g. Gemini's full root-cause text), download any incident as a **PDF or JSON report**, press **Try all** to run all 13 presets one after another (counts as one run for the viewer limit), read every escalation in plain words (what went wrong, why a person is needed), and search or filter the incident log by pipeline and outcome. Works on phones. The original HTML dashboard (`public/`) is kept as a fallback.
+- **React Dashboard** — A React + Vite + TypeScript dashboard (`frontend/`) with light and dark themes, **Sign in with Google**, a read-only **Demo** tab (the app after all 13 test cases, recorded with real Gemini), a **live** agent flow (each step lights up as the agent finishes it), an incident timeline with "Blocked by guard" badges, and a records view. Click any agent circle to see what it did in that run (e.g. Gemini's full root-cause text), download any incident as a **PDF or JSON report**, press **Try all** to run all 13 presets one after another (counts as one run for the viewer limit), read every escalation in plain words (what went wrong, why a person is needed), and search or filter the incident log by pipeline and outcome. Works on phones. Vercel builds and serves it too.
 - **Vercel-Native Deployment** — Fully serverless deployment on Vercel's free tier with in-process healing (no background task limitations).
 
 ---
@@ -173,7 +173,7 @@ Validation errors are extracted per-row from `ValidationError.errors()`, strippe
 ├── .python-version                 # Python version lock (3.12)
 ├── pyproject.toml                  # Modern Python project manifest (used by uv & Vercel)
 ├── requirements.txt                # Pip-compatible dependency list
-├── vercel.json                     # Vercel deployment configuration (routes & builds)
+├── vercel.json                     # Vercel: FastAPI preset, builds the React app, function settings
 ├── run_platform.py                 # Unified local application launcher
 ├── CHANGES.md                      # What was fixed and why, in simple words
 │
@@ -187,13 +187,15 @@ Validation errors are extracted per-row from `ValidationError.errors()`, strippe
 │   └── analytics.db                # Target warehouse for aggregated metrics
 │
 ├── frontend/                       # React + Vite + TypeScript dashboard (build: npm run build)
-│   ├── src/api.ts                  # All API calls, login key header, response types
-│   ├── src/components/             # Login, Try it, agent flow, incident timeline, records
+│   ├── src/api.ts                  # All API calls, sign-in, response types
+│   ├── src/data.ts                 # Live data or the Demo tab's recording, same components
+│   ├── src/components/             # Sign-in, Try it, agent flow, incident timeline, records, Demo
 │   └── dist/                       # Built app (not committed; FastAPI serves it when present)
 │
-├── public/                         # Original HTML dashboard (fallback when frontend/ is not built)
-│   ├── index.html                  # Dashboard UI (dark-themed, responsive, GitHub link, Data Rules panel)
-│   └── app.js                      # Dashboard logic (fetch, render, pipeline controls, quarantine log)
+├── demo/snapshot.json              # Demo tab recording (made by scripts/make_demo_snapshot.py)
+├── scripts/
+│   ├── measure.py                  # Measures the 13 presets with real Gemini, writes the README table
+│   └── make_demo_snapshot.py       # Records the 13 presets for the Demo tab
 │
 ├── src/
 │   ├── database.py                 # Dual-database adapter (SQLite ↔ Postgres)
@@ -208,7 +210,8 @@ Validation errors are extracted per-row from `ValidationError.errors()`, strippe
 │   │
 │   ├── api/
 │   │   ├── main.py                 # FastAPI gateway (REST endpoints + Vercel entrypoint)
-│   │   ├── auth.py                 # Login keys, permissions, lockout and run limit
+│   │   ├── auth.py                 # Google sign-in, login cookie, roles, run limit, script key lockout
+│   │   ├── ownership.py            # Who owns which run (viewers see only their own)
 │   │   └── security_store.py       # Stores limits, lockouts and Try all tokens in the database
 │   │
 │   ├── incidents/
@@ -260,8 +263,9 @@ Validation errors are extracted per-row from `ValidationError.errors()`, strippe
 │   ├── test_recovery.py            # Unit tests: alias matching, fix validation
 │   ├── test_sql_guard.py           # Unit tests: one per SQL guard rule
 │   ├── test_healing_e2e.py         # End-to-end healing tests (fake LLM, real API + LangGraph)
-│   ├── test_security.py            # Security tests, incl. a real-browser script-injection test
-│   ├── test_auth.py                # Login and permissions tests, incl. a real-browser login test
+│   ├── test_security.py            # Security tests (path trick, upload limit, repair checks)
+│   ├── test_auth.py                # Google sign-in, login cookie, roles and limits
+│   ├── test_per_user_data.py       # Viewers see only their own runs
 │   ├── test_paging.py              # Incident paging (limit/offset, X-Total-Count)
 │   ├── test_report.py              # Incident report download (JSON / PDF)
 │   ├── test_escalation_text.py     # Escalations in plain words
@@ -270,7 +274,9 @@ Validation errors are extracted per-row from `ValidationError.errors()`, strippe
 │   ├── test_agent_paths.py         # Each preset's path through the graph, Gemini calls and result
 │   ├── test_records_paging.py      # Quarantine / escalations paging
 │   ├── test_incident_filters.py    # Incident search and filters
-│   └── test_lockout_and_shared_limits.py  # Wrong-key lockout; limits shared by server copies
+│   ├── test_demo_snapshot.py       # Demo tab recording: access, reports, recording script
+│   ├── test_vercel_config.py       # Vercel serves the React app
+│   └── test_lockout_and_shared_limits.py  # Script-key lockout; limits shared by server copies
 │
 └── scratch/
     ├── create_test_databases.py    # Script generating SQLite test files
@@ -343,7 +349,7 @@ npm install
 npm run build
 cd ..
 ```
-This creates `frontend/dist/`. If you skip this step, the original HTML dashboard in `public/` is served instead.
+This creates `frontend/dist/`, which FastAPI serves at `http://localhost:8000`.
 
 For live editing of the UI, run `npm run dev` inside `frontend/` while the backend is running; Vite opens the app at `http://localhost:5173` and forwards `/api` to port 8000.
 
@@ -352,7 +358,7 @@ For live editing of the UI, run `npm run dev` inside `frontend/` while the backe
 venv\Scripts\python.exe run_platform.py
 ```
 - **FastAPI Control Plane**: Runs on port `8000`; logs are shown in the terminal. Stop with `Ctrl+C`.
-- **Web Dashboard**: The launcher prints `http://localhost:8000` and opens it in your browser (add `--no-browser` to skip). FastAPI serves the React app from `frontend/dist/` if it is built, otherwise `public/` (set `EHA_UI=legacy` to force the old one)
+- **Web Dashboard**: The launcher prints `http://localhost:8000` and opens it in your browser (add `--no-browser` to skip). FastAPI serves the React app from `frontend/dist/`
 
 > **Port Conflict**: If port `8000` is in use, the launcher will detect it and display an error. Stop the previous process before relaunching.
 
@@ -378,10 +384,14 @@ git push origin main
 
 1. Go to [vercel.com](https://vercel.com) and sign in with your GitHub account.
 2. Click **Add New Project** → Import your GitHub repository.
-3. Vercel will auto-detect the `vercel.json` configuration and `pyproject.toml` dependencies.
-4. Add the following **Environment Variable** in the Vercel project settings:
+3. Vercel reads `vercel.json`: the **FastAPI** preset, a build step that builds the React app
+   (`cd frontend && npm ci && npm run build`), and the function settings. FastAPI then serves the app.
+4. Add these **Environment Variables** in the Vercel project settings:
    ```
-   GOOGLE_API_KEY = your-actual-google-api-key-here
+   GOOGLE_API_KEY     = your Gemini API key
+   GOOGLE_CLIENT_ID   = your Google sign-in client id (see "Setting up Google sign-in")
+   EHA_ADMIN_EMAILS   = your-google-email@gmail.com
+   EHA_SESSION_SECRET = a long random string
    ```
 5. Click **Deploy**.
 
@@ -520,8 +530,10 @@ The suite has **188 tests** and needs no Gemini key or network:
   - a real column rename (`status_code` → `http_status`) still heals, with correct error rates.
 - **Security tests** (`test_security.py`): path-trick names are refused before any file is opened; uploads over the limit get `413`; a JSON repair that changes, adds or invents a value is escalated; the Gemini warning is on the dashboard; harmless column names are allowed and anything but one `SELECT` is blocked. One test starts the real server, uploads a file with a hidden script, and opens the dashboard in Chromium to check the script never runs. It needs Playwright and is skipped if Playwright is not installed.
 
-- **Login tests** (`test_auth.py`): no key or a wrong key gets `401`; a viewer can read, run presets and upload, but gets `403` on Clear History and the telemetry API; the viewer upload limit and run limit work; **Try all** counts as one run, its token can't be reused or faked, and uploads never get a free run; no keys means open locally and locked on Vercel. A real-browser test logs in with a wrong key, then the viewer key, runs a preset, and logs out. Tests never use keys from your `.env`.
-- **React dashboard tests** (`test_frontend_react.py`): start the real backend with login keys and a fake Gemini that tries to fake a SQL value, then click through the built app in Chromium: wrong key, viewer login and logout, admin-only Clear history (also shown in Open mode, where everyone is admin), a two-column drift that heals, the cheating SQL shown as **Blocked by guard**, an uploaded script shown as text and never run, no sideways scrolling on a 390 px phone screen, and no focus box around the whole page after switching tabs, clicking an agent circle shows what it did (also by keyboard), the PDF and JSON report buttons download real files, a viewer can press **Try all** to run all 13 presets without hitting the run limit, escalations read in plain words with the raw error behind **Technical error**, the Records tabs show 20 rows with **Show more**, the incident filters work, and on a phone the Try all results list stays in view. Skipped if Playwright is not installed or `frontend/dist` is not built.
+- **Sign-in tests** (`test_auth.py`): signed out gets `401`; a Google sign-in sets a safe cookie (HttpOnly, SameSite); a bad token, an edited or expired cookie and a missing CSRF header are refused; the admin is chosen by email; a viewer gets `403` on the telemetry API, a smaller upload limit and a run limit per person; **Try all** counts as one run and its token can't be reused or faked; the script key still works; nothing set means open locally and locked on Vercel. Google itself is replaced by a fake in tests.
+- **Per-person data tests** (`test_per_user_data.py`): two viewers never see each other's incidents, audit trails, reports, quarantined rows, escalations or counters (someone else's incident answers `404`); the admin sees all; a viewer's Clear only removes their own runs.
+- **Demo tests** (`test_demo_snapshot.py`, `test_vercel_config.py`): the recording is only for signed-in users, its reports download, it never mixes with your own runs, the recording script refuses a broken run; Vercel uses the FastAPI preset, builds the React app and has no `public/` folder that would hide it.
+- **React dashboard tests** (`test_frontend_react.py`): start the real backend with Google sign-in on and a fake Gemini that tries to fake a SQL value, then click through the built app in Chromium: the sign-in page, a viewer's "Clear my history" and sign out, admin-only Clear history (also shown in Open mode), one viewer never seeing another's runs, the read-only **Demo** tab (filters, report download, records, nothing to run), a two-column drift that heals, the cheating SQL shown as **Blocked by guard**, an uploaded script shown as text and never run, no sideways scrolling on a 390 px phone screen, no focus box around the whole page after switching tabs, clicking an agent circle shows what it did, the PDF and JSON report buttons, **Try all** without hitting the run limit, escalations in plain words, the Records tabs with **Show more**, the incident filters, and the Try all results staying in view on a phone. Skipped if Playwright is not installed or `frontend/dist` is not built.
 - **Lockout and shared-limit tests** (`test_lockout_and_shared_limits.py`): wrong keys lock a visitor out (even the right key is refused until the window passes), a missing key is not counted, a faked `x-forwarded-for` can't dodge it locally; and with **two real server copies on one database** the run limit, lockout and Try all tokens are shared, and survive a restart.
 - **Incident filter tests** (`test_incident_filters.py`): filter by outcome (healed, quarantined, escalated, in progress), by pipeline, and by search text, together with paging; `%` and `_` are searched as normal letters; unknown values get `422`.
 - **Records paging tests** (`test_records_paging.py`): `/api/quarantine` and `/api/escalations` return one page newest first with the total in `X-Total-Count`; only the escalations on the page get their plain-English text; bad values get `422`.
@@ -541,42 +553,59 @@ See [`CHANGES.md`](CHANGES.md) for what each fix does and why.
 
 | Protection | What it does |
 |:---|:---|
-| Login keys | Every API request needs a key in the `X-Access-Key` header. **Viewer** key: see everything, run presets, upload own files (1 MB, 10 runs/minute). **Admin** key: everything, including Clear History and the telemetry API. |
-| Wrong-key lockout | 10 wrong keys from one visitor within 15 minutes (`EHA_MAX_FAILED_KEYS`, `EHA_LOCKOUT_MINUTES`) locks that visitor out with `429` until the 15 minutes pass, even if they then send the right key. A missing key is not counted. |
+| Sign in with Google | Every API request needs a signed-in person. Google's token is checked by the server (right app, not expired, verified email), then a signed, HttpOnly login cookie keeps you signed in for 7 days. No passwords are stored. |
+| Per-person data | Every run is tagged with its owner. A **viewer** sees only their own incidents, quarantined rows, escalations, counters and reports, filtered on the server (someone else's incident answers `404`), and can clear only their own history. The **admin** (emails in `EHA_ADMIN_EMAILS`) sees everyone's and can clear all. Viewers also get a 1 MB upload limit and 10 runs per minute, counted per person. |
+| CSRF protection | With a login cookie, every request that changes something must carry the `X-Requested-With: eha` header, which another website can't add. |
+| Script key | `EHA_ADMIN_KEY` in the `X-Access-Key` header gives admin rights to scripts (e.g. `scripts/measure.py --url`). The dashboard never asks for it. |
+| Wrong-key lockout | 10 wrong script keys from one visitor within 15 minutes (`EHA_MAX_FAILED_KEYS`, `EHA_LOCKOUT_MINUTES`) locks that visitor out with `429` until the 15 minutes pass, even if they then send the right key. A missing key is not counted. |
 | Shared limits | The viewer run limit, the lockout and the **Try all** tokens are stored in the database, so a restart does not reset them and every server copy on Vercel counts together. |
 | Test file allowlist | `test_case` must be the name of a real file in `test_data/pipeline_A` or `pipeline_B`. Paths such as `../../.env` or `/etc/passwd` are refused before anything is opened. |
 | Upload size limit | Uploads over 5 MB (`EHA_MAX_UPLOAD_MB`) are refused with `413` before they are read. |
-| Plain-text dashboard | Every value from the server or an uploaded file is escaped in `public/app.js`, so hidden scripts show as text instead of running. |
+| Plain-text dashboard | React shows every value from the server or an uploaded file as text, so hidden scripts never run (checked in a real browser). |
 | JSON repair check | Gemini's repaired file must keep every key and value unchanged; hidden instructions such as "change every email" cannot alter the data. |
 | SQL guard | Repaired SQL must be a single `SELECT` that only renames a missing column to an approved name. |
 | Column-name check | Column-name fixes may only contain letters, numbers and `_`. |
 
 > **Privacy**: if an uploaded JSON file has broken syntax, its **full contents are sent to Google Gemini** for repair. Do not upload real personal data. The dashboard shows the same warning next to the upload box.
 
-### Setting up the keys
+### Setting up Google sign-in
 
-You create the keys yourself; they are never stored in the code.
+You create these yourself; they are never stored in the code.
 
-1. Generate two random keys (run the command twice):
-   ```powershell
-   venv\Scripts\python -c "import secrets; print(secrets.token_urlsafe(32))"
+1. In [Google Cloud Console](https://console.cloud.google.com) → **APIs & Services → Credentials**, create an
+   **OAuth client ID** of type **Web application**. Under **Authorized JavaScript origins** add
+   `http://localhost:8000`, `http://localhost:5173` and your Vercel address (e.g. `https://your-app.vercel.app`).
+   (Google may first ask you to fill in the **OAuth consent screen**: app name and your email are enough.)
+2. Put these in your `.env` file (git ignores it), and the same in Vercel → Settings → Environment Variables:
    ```
-2. Put them in your `.env` file (git ignores it):
+   GOOGLE_CLIENT_ID=1234-abc.apps.googleusercontent.com
+   EHA_ADMIN_EMAILS=your-google-email@gmail.com
+   EHA_SESSION_SECRET=<output of: venv\Scripts\python -c "import secrets; print(secrets.token_urlsafe(32))">
    ```
-   EHA_ADMIN_KEY=first-key
-   EHA_VIEWER_KEY=second-key
-   ```
-3. Restart the platform. The dashboard now shows a login box.
-4. Share the **viewer** key with interviewers. Keep the **admin** key to yourself.
+3. Restart the platform (or redeploy on Vercel). The dashboard now shows **Sign in with Google**.
 
-| Keys set? | Local | Vercel |
+| `GOOGLE_CLIENT_ID` set? | Local | Vercel |
 |:---|:---|:---|
-| No | Open, no login (a warning is logged) | Fully locked |
-| Yes | Login required | Login required (add the keys under Vercel → Settings → Environment Variables) |
+| No | Open, no sign-in (a warning is logged) | Fully locked |
+| Yes | Sign-in required | Sign-in required (`EHA_SESSION_SECRET` must be set too) |
 
-If a key leaks, generate a new one and replace it; the old one stops working at once.
+If `EHA_SESSION_SECRET` changes, everyone is signed out (their cookies no longer match). We keep only the
+Google id, email and name of people who sign in, to show who is signed in and to keep their runs separate.
 
-> **Visitor address**: limits are counted per visitor IP. On Vercel it is read from `x-forwarded-for`, which Vercel sets; locally that header is ignored so it can't be faked to dodge the limits. People behind the same network (e.g. one office) share one count.
+> **Postgres on Vercel**: per-person history needs the database connected (`POSTGRES_URL`, see step 3 above).
+> Without it every server copy has its own throw-away database, so runs can seem to disappear.
+
+### Recording the Demo tab
+
+The Demo tab shows a frozen recording of all 13 presets, made with real Gemini. Make it (again) with:
+```powershell
+venv\Scripts\python.exe scripts/make_demo_snapshot.py
+```
+It runs the presets on a throw-away local server (about 5 Gemini calls) and writes `demo/snapshot.json`. If any
+preset does not behave as designed (e.g. the Gemini quota ran out), nothing is written. Commit the file to
+update the live demo.
+
+> **Visitor address**: the script-key lockout is counted per visitor IP (the viewer run limit is per person). On Vercel it is read from `x-forwarded-for`, which Vercel sets; locally that header is ignored so it can't be faked to dodge the limits. People behind the same network (e.g. one office) share one count.
 
 ---
 
@@ -589,7 +618,7 @@ If a key leaks, generate a new one and replace it; the old one stops working at 
 | LLM Provider | Google Gemini (`gemini-3.5-flash-lite`) |
 | Local Database | SQLite 3 |
 | Cloud Database | Neon Postgres (via `pg8000`) |
-| Frontend Dashboard | React 18, Vite, TypeScript, Tailwind CSS (`frontend/`); original HTML/JS version in `public/` |
+| Frontend Dashboard | React 18, Vite, TypeScript, Tailwind CSS (`frontend/`), Sign in with Google |
 | Structured Logging | structlog |
 | Data Validation | **Pydantic v2** (`CustomerRecord` model with field validators) |
 | LLM SQL Safety Check | **sqlglot** (parses and compares queries before they run) |
@@ -608,13 +637,15 @@ If a key leaks, generate a new one and replace it; the old one stops working at 
 | `VERCEL` | Auto-injected | Set to `"1"` by Vercel runtime to signal serverless environment |
 | `EHA_DB_DIR` | Optional | Folder for all SQLite databases. Set automatically by the test suite; leave unset for normal use |
 | `EHA_MAX_UPLOAD_MB` | Optional | Maximum upload size in MB for the admin (default `5`) |
-| `EHA_ADMIN_KEY` | Recommended | Admin login key (full access). See [Setting up the keys](#setting-up-the-keys) |
-| `EHA_VIEWER_KEY` | Recommended | Viewer login key (read, run presets, upload) |
+| `GOOGLE_CLIENT_ID` | Required on Vercel | Google sign-in client id. See [Setting up Google sign-in](#setting-up-google-sign-in) |
+| `EHA_ADMIN_EMAILS` | Required on Vercel | Google accounts with admin rights, comma separated |
+| `EHA_SESSION_SECRET` | Required on Vercel | Signs the login cookie (any long random string) |
+| `EHA_ADMIN_KEY` | Optional | Admin key for scripts only (`X-Access-Key` header) |
+| `EHA_DEMO_SNAPSHOT` | Optional | Other location for the Demo tab recording (default `demo/snapshot.json`) |
 | `EHA_VIEWER_MAX_UPLOAD_MB` | Optional | Maximum upload size in MB for viewers (default `1`) |
 | `EHA_VIEWER_RUNS_PER_MINUTE` | Optional | Pipeline runs per minute allowed per viewer (default `10`) |
-| `EHA_MAX_FAILED_KEYS` | Optional | Wrong keys allowed per visitor before a lockout (default `10`) |
+| `EHA_MAX_FAILED_KEYS` | Optional | Wrong script keys allowed per visitor before a lockout (default `10`) |
 | `EHA_LOCKOUT_MINUTES` | Optional | How long the lockout window is, in minutes (default `15`) |
-| `EHA_UI` | Optional | Set to `legacy` to serve the original HTML dashboard even when the React app is built |
 
 ---
 

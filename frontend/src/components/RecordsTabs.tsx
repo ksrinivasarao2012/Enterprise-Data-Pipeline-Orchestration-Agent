@@ -1,5 +1,6 @@
 import { Fragment, useCallback, useRef, useState, type KeyboardEvent } from 'react';
-import { ApiError, api, type Escalation, type QuarantineRecord } from '../api';
+import { ApiError, type Escalation, type QuarantineRecord } from '../api';
+import { useData } from '../data';
 import { usePolling } from '../hooks/usePolling';
 import { formatTime, pipelineName } from '../lib/incident';
 import { same } from '../lib/stable';
@@ -23,6 +24,7 @@ const PAGE_SIZE = 20;
 
 /** Quarantine and escalation records, refreshed while this section is on screen. */
 export function RecordsTabs({ refreshKey }: { refreshKey: number }) {
+  const data = useData();
   const [tab, setTab] = useState<Tab>('quarantine');
   const [quarantine, setQuarantine] = useState<QuarantineRecord[] | null>(null);
   const [escalations, setEscalations] = useState<Escalation[] | null>(null);
@@ -36,8 +38,8 @@ export function RecordsTabs({ refreshKey }: { refreshKey: number }) {
     try {
       // The open tab gets its page; the other tab asks for 1 row just to read its total.
       const [q, e] = await Promise.all([
-        api.quarantine(tab === 'quarantine' ? limits.quarantine : 1),
-        api.escalations(tab === 'escalations' ? limits.escalations : 1),
+        data.quarantine(tab === 'quarantine' ? limits.quarantine : 1),
+        data.escalations(tab === 'escalations' ? limits.escalations : 1),
       ]);
       if (tab === 'quarantine') setQuarantine((prev) => same(prev, q.items));
       else setEscalations((prev) => same(prev, e.items));
@@ -46,7 +48,7 @@ export function RecordsTabs({ refreshKey }: { refreshKey: number }) {
     } catch (err) {
       if (err instanceof ApiError && err.status !== 401) setError(err.detail);
     }
-  }, [tab, limits]);
+  }, [tab, limits, data]);
 
   usePolling(load, 3000, true, [refreshKey, tab, limits]);
 

@@ -123,10 +123,14 @@ class IncidentRepository:
 
     @classmethod
     def _filter_sql(cls, pipeline: str | None, outcome: str | None, search: str | None,
-                    blocked: bool | None = None) -> tuple[str, list]:
+                    blocked: bool | None = None, scope: tuple[str, list] = ("", [])) -> tuple[str, list]:
         """WHERE clause for the dashboard filters (CHANGES.md section 18). Values are always
-        passed as parameters, never pasted into the SQL."""
+        passed as parameters, never pasted into the SQL. `scope` limits it to one person's runs
+        (src/api/ownership.py, CHANGES.md section 31)."""
         where, params = [], []
+        if scope[0]:
+            where.append(scope[0])
+            params += list(scope[1])
         if pipeline:
             where.append("pipeline_id = ?")
             params.append(pipeline)
@@ -155,10 +159,11 @@ class IncidentRepository:
     @classmethod
     def get_incidents_page(cls, limit: int, offset: int = 0, pipeline: str | None = None,
                            outcome: str | None = None, search: str | None = None,
-                           blocked: bool | None = None) -> tuple[list[IncidentSchema], int]:
+                           blocked: bool | None = None,
+                           scope: tuple[str, list] = ("", [])) -> tuple[list[IncidentSchema], int]:
         """One page of incidents, newest first, plus the total that match the filters.
         Used by the dashboard, which refreshes every few seconds."""
-        where, params = cls._filter_sql(pipeline, outcome, search, blocked)
+        where, params = cls._filter_sql(pipeline, outcome, search, blocked, scope)
         with cls._get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute(f"SELECT COUNT(*) FROM incidents{where}", tuple(params))

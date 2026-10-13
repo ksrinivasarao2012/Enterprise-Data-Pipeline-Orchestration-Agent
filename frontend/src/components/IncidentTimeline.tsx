@@ -27,8 +27,9 @@ interface Props {
   selectedAudit: AuditEntry[] | null;
   step: number;
   onReplay: () => void;
-  isAdmin: boolean;
-  onClearHistory: () => void;
+  /** "Clear history" for the admin, "Clear my history" for a viewer. Left out on the read-only Demo tab. */
+  clearLabel?: string;
+  onClearHistory?: () => void;
   onGoRun: () => void;
 }
 
@@ -45,7 +46,7 @@ export function IncidentTimeline({
   selectedAudit,
   step,
   onReplay,
-  isAdmin,
+  clearLabel,
   onClearHistory,
   onGoRun,
 }: Props) {
@@ -81,9 +82,9 @@ export function IncidentTimeline({
           Show only blocked fixes
           {blockedCount > 0 && <span className="pill pill-bad">{blockedCount}</span>}
         </button>
-        {isAdmin && (
+        {onClearHistory && (
           <button type="button" className="btn text-bad" onClick={onClearHistory}>
-            Clear history
+            {clearLabel}
           </button>
         )}
       </div>

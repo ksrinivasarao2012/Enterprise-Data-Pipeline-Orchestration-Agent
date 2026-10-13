@@ -55,17 +55,21 @@ class QuarantineService:
             raise e
 
     @classmethod
-    def get_quarantined_records(cls, limit: int | None = None, offset: int = 0) -> List[Dict[str, Any]]:
-        """Quarantined records, newest first. With `limit`, only that page (CHANGES.md section 17)."""
-        query = """
+    def get_quarantined_records(cls, limit: int | None = None, offset: int = 0,
+                                scope: tuple[str, list] = ("", [])) -> List[Dict[str, Any]]:
+        """Quarantined records, newest first. With `limit`, only that page (CHANGES.md section 17).
+        `scope` limits them to one person's runs (src/api/ownership.py, CHANGES.md section 31)."""
+        where, scope_params = scope
+        query = f"""
             SELECT quarantine_id, pipeline_id, run_id, record_type, raw_record, validation_errors, created_at
             FROM quarantined_records
+            {"WHERE " + where if where else ""}
             ORDER BY created_at DESC
         """
-        params: tuple = ()
+        params: tuple = tuple(scope_params)
         if limit is not None:
             query += " LIMIT ? OFFSET ?"
-            params = (limit, offset)
+            params += (limit, offset)
         records = []
         try:
             with cls._get_connection() as conn:
@@ -87,10 +91,11 @@ class QuarantineService:
         return records
 
     @classmethod
-    def count_quarantined_records(cls) -> int:
+    def count_quarantined_records(cls, scope: tuple[str, list] = ("", [])) -> int:
+        where, params = scope
         with cls._get_connection() as conn:
             cursor = conn.cursor()
-            cursor.execute("SELECT COUNT(*) FROM quarantined_records")
+            cursor.execute("SELECT COUNT(*) FROM quarantined_records" + (" WHERE " + where if where else ""), tuple(params))
             return cursor.fetchone()[0]
 
     @classmethod

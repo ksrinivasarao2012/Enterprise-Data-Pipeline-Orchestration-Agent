@@ -398,7 +398,7 @@ Try all now uses about **5** Gemini calls instead of about 11.
 
 **Purpose:** Prove each bug existed, prove it's fixed, and stop it coming back.
 
-- **218 tests** in total, all passing: `venv\Scripts\python -m pytest test`
+- **239 tests** in total, all passing: `venv\Scripts\python -m pytest test`
 - Each new test was first run on the old code and failed. It passes now.
 - Gemini is replaced by a fake model, so the tests are free, need no internet, and give the same result every time.
 - Tests use a temporary database (`EHA_DB_DIR`), so your real data is never touched.
@@ -422,6 +422,9 @@ Try all now uses about **5** Gemini calls instead of about 11.
 | `test/test_agent_paths.py` | Each of the 13 presets: exact path through the graph (with the retry loop), Gemini calls, final result; Recovery prompts include RCA; missing field in some rows vs every row |
 | `test/test_blocked_filter.py` | "Blocked by guard" saved in the database, old incidents marked once, filter and badge count from the server |
 | `test/test_measure.py` | The measure script: expected table, README block written between the markers, failed Gemini calls flagged, Windows file lock handled |
+| `test/test_per_user_data.py` | Two viewers never see each other's incidents, audit trails, reports, quarantined rows, escalations or counters; the admin sees all; Clear only removes your own runs |
+| `test/test_demo_snapshot.py` | Demo recording: only for signed-in users, reports download, never mixes with your runs, the recording script refuses a broken run |
+| `test/test_vercel_config.py` | Vercel uses the FastAPI preset, builds the React app, and there is no `public/` folder to hide it |
 | `test/test_recovery.py` | Existing tests for column matching and fix validation |
 
 **Files:** `test/conftest.py` (shared test setup), `test/test_healing_e2e.py`, `test/test_sql_guard.py`, `test/test_security.py`, `test/test_auth.py` (new), `src/config.py` (`EHA_DB_DIR` option)
@@ -476,6 +479,47 @@ Try all now uses about **5** Gemini calls instead of about 11.
 
 ---
 
+## 30. Vercel serves the React app
+
+**Purpose:** Vercel still served the old HTML dashboard (`public/`).
+
+- `vercel.json` now uses Vercel's **FastAPI** preset (the old `builds` list is gone). The deploy builds the React app (`cd frontend && npm ci && npm run build`) and FastAPI serves `frontend/dist`, locally and on Vercel.
+- The old HTML dashboard (`public/`) is **removed**: Vercel serves a `public/` folder before the app, so it would have hidden the React app. Its two tests now check the React app instead.
+- Checked with `vercel build` locally: the build succeeds, the bundle is about 0.5 MB, and `/` returns the React app.
+
+**Files:** `vercel.json`, `pyproject.toml`, `src/api/main.py`, `public/` (deleted), `test/test_security.py`, `test/test_vercel_config.py` (new)
+
+---
+
+## 31. Sign in with Google, and each viewer sees only their own runs
+
+**Purpose:** Everyone shared one viewer key and saw everyone's runs. Now each person signs in with their own Google account and has their own space.
+
+- **Sign in:** a "Sign in with Google" button. The server checks Google's token (right app, not expired, email verified), then sets its own login cookie: signed, HttpOnly, 7 days. No passwords are stored.
+- **Admin** = the Google emails in `EHA_ADMIN_EMAILS`. Everyone else is a viewer. The viewer key is gone; `EHA_ADMIN_KEY` stays for scripts only.
+- **Per-person data:** every run is tagged with its owner (`run_owners` table). Viewers see only their own incidents, audit trails, reports, quarantined rows, escalations and counters, filtered on the server; someone else's incident answers `404`. The admin sees all.
+- **Clear history:** viewers clear only their own runs ("Clear my history"); the admin clears everything.
+- **Limits:** the viewer run limit counts per person, not per address.
+- **CSRF:** requests that change something must send `X-Requested-With: eha`, which another site can't add.
+- **Stored about people:** only Google id, email and name (`users` table).
+- **New settings:** `GOOGLE_CLIENT_ID`, `EHA_ADMIN_EMAILS`, `EHA_SESSION_SECRET` (all three needed on Vercel). Nothing set locally = open mode, as before.
+
+**Files:** `src/api/auth.py` (rewritten), `src/api/ownership.py` (new), `src/api/main.py`, `database/init_db.py`, `src/incidents/incident_repository.py`, `src/services/quarantine_service.py`, `.env.example`, `frontend/src/api.ts`, `frontend/src/App.tsx`, `frontend/src/components/LoginCard.tsx`, `Header.tsx`, `Dashboard.tsx`, `IncidentTimeline.tsx`, `test/conftest.py`, `test/test_auth.py` (rewritten), `test/test_per_user_data.py` (new), `test/test_lockout_and_shared_limits.py`, `test/test_report.py`, `test/test_live.py`, `test/test_frontend_react.py`
+
+---
+
+## 32. Demo tab
+
+**Purpose:** Let an interviewer see the app after all 13 test cases without running anything.
+
+- A **Demo** tab for signed-in users: the same incident log, agent flow, reports and records, from a frozen recording. Read-only: nothing can be run or cleared, and it never mixes with anyone's own runs.
+- The recording (`demo/snapshot.json`) is made with real Gemini by `python scripts/make_demo_snapshot.py`. If any preset doesn't behave as designed (e.g. the quota ran out), nothing is written.
+- The frontend reads live data or the recording through one data source (`frontend/src/data.ts`), so both look exactly the same.
+
+**Files:** `scripts/make_demo_snapshot.py` (new), `demo/snapshot.json` (made by the script), `src/api/main.py`, `frontend/src/data.ts` (new), `frontend/src/components/DemoPage.tsx` (new), `Dashboard.tsx`, `RecordsTabs.tsx`, `DownloadReport.tsx`, `frontend/src/hooks/useRoute.ts`, `test/test_demo_snapshot.py` (new)
+
+---
+
 ## Results before and after
 
 Same 13 test files, same fake Gemini:
@@ -492,4 +536,4 @@ Same 13 test files, same fake Gemini:
 
 ## Still open
 
-- **Deployment:** Vercel still serves the old HTML dashboard; the React app needs a build step in `vercel.json`.
+- **To do once:** create the Google sign-in client id, set the three new settings on Vercel, connect Postgres, and record the demo (`scripts/make_demo_snapshot.py`). See the README.

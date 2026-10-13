@@ -10,11 +10,6 @@ Security tests (fixes 2-7 in CHANGES.md).
 """
 import json
 import os
-import socket
-import subprocess
-import sys
-import tempfile
-import time
 
 import pytest
 
@@ -126,9 +121,9 @@ def test_repair_that_invents_a_missing_value_is_blocked(client, fake_llm):
 # ---------------------------------------------------------------- 6. Gemini warning
 
 def test_dashboard_warns_that_broken_files_go_to_gemini():
-    html = open(os.path.join(ROOT, "public", "index.html"), encoding="utf-8").read()
-    assert 'id="gemini-warning"' in html
-    assert "Google Gemini" in html
+    # The React dashboard (the old public/ page was removed in CHANGES.md section 30).
+    src = open(os.path.join(ROOT, "frontend", "src", "components", "TryItPanel.tsx"), encoding="utf-8").read()
+    assert "contents are sent to Google Gemini" in src
 
 
 # ---------------------------------------------------------------- 7. SQL word list replaced
@@ -155,50 +150,5 @@ def test_sql_in_a_column_name_is_still_blocked():
 
 # ---------------------------------------------------------------- 3. script injection (real browser)
 
-def _free_port():
-    with socket.socket() as s:
-        s.bind(("127.0.0.1", 0))
-        return s.getsockname()[1]
-
-
-def test_uploaded_code_is_shown_as_text_not_run():
-    """Starts the real server, uploads a file with a script hidden in the email field,
-    opens the dashboard in Chromium and checks the script never runs."""
-    playwright = pytest.importorskip("playwright.sync_api")
-    import requests
-
-    port = _free_port()
-    env = dict(os.environ, EHA_DB_DIR=tempfile.mkdtemp(prefix="eha_xss_"), PYTHONPATH=ROOT, EHA_UI="legacy")
-    server = subprocess.Popen([sys.executable, "-m", "uvicorn", "src.api.main:app", "--port", str(port)],
-                              cwd=ROOT, env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    base = f"http://127.0.0.1:{port}"
-    try:
-        for _ in range(100):
-            try:
-                if requests.get(f"{base}/api/metrics", timeout=1).ok:
-                    break
-            except Exception:
-                time.sleep(0.2)
-
-        payload = '<img src=x onerror="window.__hacked=1">@evil.com'
-        rows = [dict(r) for r in HEALTHY]
-        rows[0]["email"] = "not-an-email " + payload.replace("@evil.com", "")  # fails validation -> quarantined
-        rows[1]["name"] = payload
-        requests.post(f"{base}/api/pipelines/a/execute",
-                      files={"file": ("xss.json", json.dumps(rows), "application/json")}, timeout=60)
-
-        with playwright.sync_playwright() as p:
-            browser = p.chromium.launch()
-            page = browser.new_page()
-            page.goto(base)
-            page.wait_for_selector("#quarantine-body td:has-text('qnt_')", timeout=15000)
-            page.wait_for_timeout(1500)
-            hacked = page.evaluate("window.__hacked")
-            quarantine_text = page.inner_text("#quarantine-body")
-            browser.close()
-
-        assert hacked is None, "the script hidden in the uploaded data ran in the browser"
-        assert "<img" in quarantine_text, "the data should be visible as plain text"
-    finally:
-        server.terminate()
-        server.wait(timeout=10)
+# The browser test that uploaded data can't run scripts now runs against the React dashboard:
+# test_frontend_react.py::test_uploaded_script_is_shown_as_text_not_run.

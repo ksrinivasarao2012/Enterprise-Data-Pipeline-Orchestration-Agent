@@ -146,6 +146,25 @@ def initialize_database():
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_run_events_client ON run_events(client_id, started_at)")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_demo_grants_token ON demo_grants(token)")
 
+        # Per-person data (CHANGES.md section 31): who owns each run, and who signed in.
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS run_owners (
+                run_id TEXT PRIMARY KEY,
+                owner TEXT NOT NULL,
+                created_at TEXT NOT NULL
+            )
+        """)
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS users (
+                user_id TEXT PRIMARY KEY,
+                email TEXT NOT NULL,
+                name TEXT,
+                created_at TEXT NOT NULL,
+                last_login_at TEXT NOT NULL
+            )
+        """)
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_run_owners_owner ON run_owners(owner)")
+
         # Databases made before CHANGES.md section 26 have no blocked_by_guard column. Add it, and
         # fill it in ONCE for the old incidents from their audit log (only when the column is new).
         if _ensure_blocked_by_guard_column(cursor):

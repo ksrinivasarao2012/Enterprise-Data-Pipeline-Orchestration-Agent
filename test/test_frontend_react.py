@@ -1,8 +1,10 @@
 """
 Browser tests for the React dashboard in frontend/ (see frontend/README.md).
 
-They start the real backend with login keys and a fake Gemini that tries to cheat on SQL,
-then click through the built app in Chromium. Skipped if Playwright is not installed or
+They start the real backend with Google sign-in switched on and a fake Gemini that tries to
+cheat on SQL, then click through the built app in Chromium. Google itself can't be used in a
+test, so the browser is given the login cookie the server sets after a Google sign-in
+(conftest.browser_sign_in); everything after that is the real app. Skipped if Playwright is not installed or
 the app has not been built yet (cd frontend && npm install && npm run build).
 """
 import json
@@ -16,9 +18,13 @@ import time
 
 import pytest
 
+from conftest import ADMIN_EMAIL, browser_sign_in, server_env_for_google, session_headers
+
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DIST = os.path.join(ROOT, "frontend", "dist", "index.html")
-ADMIN, VIEWER = "admin-test-key-123", "viewer-test-key-456"
+ADMIN = "admin-test-key-123"              # script key: used only to seed data through the API
+VIEWER = "viewer@example.com"             # Google accounts used in the browser
+DEMO_FILE = os.path.join(tempfile.mkdtemp(prefix="eha_demo_snap_"), "snapshot.json")
 
 pytestmark = pytest.mark.skipif(not os.path.exists(DIST), reason="React app not built (frontend/dist missing)")
 
@@ -63,7 +69,9 @@ def server():
     script = os.path.join(tempfile.mkdtemp(), "server.py")
     open(script, "w").write(SERVER)
     env = dict(os.environ, EHA_DB_DIR=tempfile.mkdtemp(prefix="eha_react_"), PYTHONPATH=ROOT,
-               EHA_ADMIN_KEY=ADMIN, EHA_VIEWER_KEY=VIEWER, EHA_UI="", GOOGLE_API_KEY="x")
+               EHA_ADMIN_KEY=ADMIN, EHA_VIEWER_KEY="", EHA_UI="", GOOGLE_API_KEY="x",
+               EHA_DEMO_SNAPSHOT=DEMO_FILE, **server_env_for_google())
+    env.pop("VERCEL", None)
     proc = subprocess.Popen([sys.executable, script, ROOT, str(port)], cwd=ROOT, env=env,
                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     base = f"http://127.0.0.1:{port}"
@@ -89,29 +97,60 @@ def page(server):
         browser.close()
 
 
-def _login(page, key):
-    page.fill("input[type=password]", key)
-    page.keyboard.press("Enter")
+def _origin(page):
+    return page.url.split("#")[0].rstrip("/")
 
 
-def test_wrong_key_then_viewer_login_and_logout(page):
-    _login(page, "wrong")
-    page.get_by_text("Wrong key").wait_for(timeout=10000)
+def _login(page, email):
+    """Signs this browser in as a Google account and reloads, as after a real Google sign-in."""
+    browser_sign_in(page.context, _origin(page), email)
+    page.goto(_origin(page) + "/")
+    page.get_by_role("button", name="Sign out").wait_for(timeout=10000)
+
+
+def _as(email):
+    """Headers to seed data through the API as this Google account (their own runs)."""
+    return session_headers(email)
+
+
+def test_sign_in_page_then_viewer_and_sign_out(page):
+    # Signed out: the sign-in page with the Google button (Google's script may not load in a
+    # test sandbox; then the page says so instead of failing silently).
+    page.get_by_role("heading", name="Sign in").wait_for(timeout=10000)
+    page.locator('[data-testid="google-button"]').wait_for(state="attached", timeout=5000)
+    assert page.locator("input[type=password]").count() == 0, "no access-key box any more"
     _login(page, VIEWER)
-    page.get_by_role("button", name="Log out").wait_for(timeout=10000)
-    page.get_by_text("Viewer", exact=True).wait_for()
-    page.goto(page.url.split("#")[0] + "#/incidents")
+    page.locator("header .pill").get_by_text("Viewer", exact=True).wait_for()
+    page.goto(_origin(page) + "/#/incidents")
     page.get_by_text("Incident timeline").wait_for(timeout=10000)
-    assert page.get_by_role("button", name="Clear history").count() == 0, "viewers must not see Clear history"
-    page.get_by_role("button", name="Log out").click()
-    page.locator("input[type=password]").wait_for(timeout=10000)
+    # viewers clear only their own runs
+    page.get_by_role("button", name="Clear my history").wait_for(timeout=10000)
+    assert page.get_by_role("button", name="Clear history", exact=True).count() == 0
+    page.get_by_role("button", name="Sign out").click()
+    page.get_by_role("heading", name="Sign in").wait_for(timeout=10000)
+    # the cookie is really gone: a reload stays signed out
+    page.reload()
+    page.get_by_role("heading", name="Sign in").wait_for(timeout=10000)
 
 
 def test_admin_sees_clear_history(page):
-    _login(page, ADMIN)
+    _login(page, ADMIN_EMAIL)
     page.get_by_text("Admin", exact=True).wait_for(timeout=10000)
-    page.goto(page.url.split("#")[0] + "#/incidents")
-    page.get_by_role("button", name="Clear history").wait_for(timeout=10000)
+    page.goto(_origin(page) + "/#/incidents")
+    page.get_by_role("button", name="Clear history", exact=True).wait_for(timeout=10000)
+
+
+def test_a_viewer_never_sees_another_viewers_runs(page, server):
+    import requests
+    requests.post(server + "/api/pipelines/b/execute", headers=_as("other@example.com"),
+                  data={"test_case": "missing_table.db"}, timeout=60)
+    _login(page, "fresh@example.com")
+    page.goto(_origin(page) + "/#/incidents")
+    page.get_by_text("No incidents yet. Run a preset to create one.").wait_for(timeout=10000)
+    page.goto(_origin(page) + "/#/records")
+    page.get_by_role("tab", name="Escalations").click()
+    page.wait_for_timeout(1500)
+    assert "device_telemetry" not in page.inner_text("main")
 
 
 def test_viewer_runs_two_renamed_columns_and_it_heals(page):
@@ -127,7 +166,7 @@ def test_cheating_sql_is_shown_as_blocked_by_guard(page):
     page.get_by_text("sql_error.db").click()
     page.get_by_role("button", name="Run pipeline").click()
     page.get_by_text("Sent to a human").first.wait_for(timeout=30000)
-    page.goto(page.url.split("#")[0] + "#/incidents")
+    page.goto(_origin(page) + "/#/incidents")
     page.get_by_text("Blocked by guard").first.wait_for(timeout=15000)
     assert "constant instead of a real column" in page.inner_text("main")
 
@@ -137,13 +176,12 @@ def test_uploaded_script_is_shown_as_text_not_run(page, server):
     rows = json.load(open(os.path.join(ROOT, "test_data", "pipeline_A", "case_healthy.json")))
     rows[0]["email"] = 'bad <img src=x onerror="window.__hacked=1">'
     rows[1]["name"] = '<img src=x onerror="window.__hacked=2">'
-    requests.post(server + "/api/pipelines/a/execute", headers={"X-Access-Key": ADMIN},
+    requests.post(server + "/api/pipelines/a/execute", headers=_as(VIEWER),
                   files={"file": ("x.json", json.dumps(rows), "application/json")}, timeout=60)
     _login(page, VIEWER)
-    page.get_by_role("button", name="Log out").wait_for(timeout=10000)
-    page.goto(page.url.split("#")[0] + "#/records")
+    page.goto(_origin(page) + "/#/records")
     page.get_by_text("onerror").first.wait_for(timeout=15000)
-    page.goto(page.url.split("#")[0] + "#/incidents")
+    page.goto(_origin(page) + "/#/incidents")
     page.wait_for_timeout(2000)
     assert page.evaluate("window.__hacked") is None
 
@@ -156,7 +194,6 @@ def test_no_sideways_scroll_on_a_phone(server, route):
         pg = browser.new_page(viewport={"width": 390, "height": 844})
         pg.goto(server)
         _login(pg, VIEWER)
-        pg.get_by_role("button", name="Log out").wait_for(timeout=10000)
         pg.goto(server + "/" + route)
         pg.wait_for_timeout(2500)
         width = pg.evaluate("document.documentElement.scrollWidth")
@@ -176,7 +213,7 @@ def test_quarantine_only_run_is_not_shown_as_healed(page):
         assert step in mc, f"missing validation step {step!r}"
     assert "RCA (Gemini)" not in mc, "no unused agent steps should be drawn"
     assert "Healed by the agents" not in mc
-    page.goto(page.url.split("#")[0] + "#/incidents")
+    page.goto(_origin(page) + "/#/incidents")
     page.get_by_text("Incident timeline").wait_for(timeout=10000)
     page.wait_for_timeout(1500)
     main = page.inner_text("main").lower()   # some labels are shown in capitals
@@ -191,9 +228,8 @@ def test_incident_list_shows_a_page_and_loads_more(page, server):
     total = int(requests.get(server + "/api/incidents?limit=1", headers=h).headers["X-Total-Count"])
     assert total > 20
 
-    _login(page, ADMIN)
-    page.get_by_role("button", name="Log out").wait_for(timeout=10000)
-    page.goto(page.url.split("#")[0] + "#/incidents")
+    _login(page, ADMIN_EMAIL)
+    page.goto(_origin(page) + "/#/incidents")
     page.get_by_text(f"20 of {total}").wait_for(timeout=10000)
     page.get_by_role("button", name="Show more").click()
     shown = min(40, total)
@@ -202,8 +238,7 @@ def test_incident_list_shows_a_page_and_loads_more(page, server):
 
 def test_no_focus_ring_around_the_page_after_switching_tabs(page):
     # Switching tabs moves focus to <main> (for screen readers); it must not draw a blue box around the page.
-    _login(page, ADMIN)
-    page.get_by_role("button", name="Log out").wait_for(timeout=10000)
+    _login(page, ADMIN_EMAIL)
     page.locator('a[href="#/incidents"]').first.focus()
     page.keyboard.press("Enter")  # keyboard use is when browsers show focus rings
     page.wait_for_function("document.activeElement && document.activeElement.tagName === 'MAIN'", timeout=10000)
@@ -214,8 +249,7 @@ def test_no_focus_ring_around_the_page_after_switching_tabs(page):
 
 
 def _heal_country_drift(page):
-    _login(page, ADMIN)
-    page.get_by_role("button", name="Log out").wait_for(timeout=10000)
+    _login(page, ADMIN_EMAIL)
     page.get_by_text("Renamed column: country").click()
     page.get_by_role("button", name="Run pipeline").click()
     page.get_by_text("Healed by agents").first.wait_for(timeout=30000)
@@ -243,7 +277,7 @@ def test_clicking_an_agent_circle_explains_what_it_did(page):
 def test_download_report_as_pdf_and_json(page):
     pytest.importorskip("fpdf")
     _heal_country_drift(page)
-    page.goto(page.url.split("#")[0] + "#/incidents")
+    page.goto(_origin(page) + "/#/incidents")
     page.locator("#incident-detail").wait_for(timeout=10000)
     with page.expect_download() as d:
         page.get_by_role("button", name="Download PDF report").click()
@@ -258,7 +292,6 @@ def test_download_report_as_pdf_and_json(page):
 def test_try_all_runs_every_preset_as_a_viewer(page):
     # 13 presets is more than the viewer limit (10 per minute), but Try all counts as one run.
     _login(page, VIEWER)
-    page.get_by_role("button", name="Log out").wait_for(timeout=10000)
     page.get_by_role("button", name="Try all 13 presets").click()
     page.get_by_role("button", name="Stop after this one").wait_for(timeout=5000)
     page.get_by_text("Try all finished: 13 runs").wait_for(timeout=120000)
@@ -273,9 +306,8 @@ def test_escalations_are_shown_in_plain_words(page, server):
     import requests
     requests.post(server + "/api/pipelines/b/execute", headers={"X-Access-Key": ADMIN},
                   data={"test_case": "missing_table.db"}, timeout=60)
-    _login(page, ADMIN)
-    page.get_by_role("button", name="Log out").wait_for(timeout=10000)
-    page.goto(page.url.split("#")[0] + "#/records")
+    _login(page, ADMIN_EMAIL)
+    page.goto(_origin(page) + "/#/records")
     page.get_by_role("tab", name="Escalations").click()
     row = page.locator("tr", has_text="The source table 'device_telemetry' does not exist.").last
     row.wait_for(timeout=10000)
@@ -296,9 +328,8 @@ def test_records_tab_shows_a_page_and_loads_more(page, server):
     total = int(requests.get(server + "/api/quarantine?limit=1", headers={"X-Access-Key": ADMIN}).headers["X-Total-Count"])
     assert total >= 25
 
-    _login(page, ADMIN)
-    page.get_by_role("button", name="Log out").wait_for(timeout=10000)
-    page.goto(page.url.split("#")[0] + "#/records")
+    _login(page, ADMIN_EMAIL)
+    page.goto(_origin(page) + "/#/records")
     page.get_by_text(f"20 of {total}").wait_for(timeout=10000)
     assert page.locator("#records-panel tbody tr").count() == 20
     page.get_by_role("tab", name="Quarantine").get_by_text(str(total)).wait_for(timeout=5000)  # badge = real total
@@ -317,9 +348,8 @@ def test_incident_filters_in_the_browser(page, server):
     requests.post(server + "/api/pipelines/a/execute", headers=h, data={"test_case": "case_drift_country.json"}, timeout=60)
     esc = int(requests.get(server + "/api/incidents?limit=1&outcome=escalated", headers=h).headers["X-Total-Count"])
 
-    _login(page, ADMIN)
-    page.get_by_role("button", name="Log out").wait_for(timeout=10000)
-    page.goto(page.url.split("#")[0] + "#/incidents")
+    _login(page, ADMIN_EMAIL)
+    page.goto(_origin(page) + "/#/incidents")
     page.get_by_role("button", name="Escalated", exact=True).click()
     page.get_by_text(f"{min(20, esc)} of {esc} matching").wait_for(timeout=10000)
     assert page.get_by_text("Healed by agents").count() == 0
@@ -337,8 +367,7 @@ def test_try_all_on_a_phone_keeps_the_results_list_in_view(server):
         browser = p.chromium.launch()
         pg = browser.new_page(viewport={"width": 390, "height": 844})
         pg.goto(server)
-        _login(pg, ADMIN)
-        pg.get_by_role("button", name="Log out").wait_for(timeout=10000)
+        _login(pg, ADMIN_EMAIL)
         pg.get_by_role("button", name="Try all 13 presets").click()
         in_view = "(() => { const r = document.getElementById('try-all-results')?.getBoundingClientRect();" \
                   " return !!r && r.top < innerHeight && r.bottom > 0; })()"
@@ -358,7 +387,7 @@ def test_open_mode_shows_clear_history():
     script = os.path.join(tempfile.mkdtemp(), "server.py")
     open(script, "w").write(SERVER)
     env = dict(os.environ, EHA_DB_DIR=tempfile.mkdtemp(prefix="eha_open_"), PYTHONPATH=ROOT,
-               EHA_ADMIN_KEY="", EHA_VIEWER_KEY="", EHA_UI="", GOOGLE_API_KEY="x")
+               EHA_ADMIN_KEY="", EHA_VIEWER_KEY="", EHA_UI="", GOOGLE_API_KEY="x", GOOGLE_CLIENT_ID="")
     env.pop("VERCEL", None)
     proc = subprocess.Popen([sys.executable, script, ROOT, str(port)], cwd=ROOT, env=env,
                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
@@ -385,7 +414,7 @@ def test_open_mode_shows_clear_history():
 def test_skipped_rca_is_explained_not_not_found_yet(page):
     # A renamed column is fixed by a rule, so RCA never runs; the card must say why.
     _heal_country_drift(page)
-    page.goto(page.url.split("#")[0] + "#/incidents")
+    page.goto(_origin(page) + "/#/incidents")
     page.locator("#incident-detail").wait_for(timeout=10000)
     page.get_by_text("Not needed: a safe rule already knew the fix, so Gemini wasn't asked.").first.wait_for(timeout=10000)
     assert page.get_by_text("Not found yet.").count() == 0
@@ -396,14 +425,14 @@ def test_blocked_filter_finds_an_older_incident_beyond_the_first_page(page, serv
     20 incidents on screen, so a blocked fix on page 2 was missed and the badge count was wrong."""
     import requests
     admin = {"X-Access-Key": ADMIN}
-    requests.post(server + "/api/history/clear", headers=admin, timeout=30)
+    requests.post(server + "/api/history/clear", headers=admin, timeout=30)   # admin: clears everyone's
     # the blocked one is the OLDEST incident; 22 newer, harmless ones push it to page 2 (page size 20)
     requests.post(server + "/api/pipelines/b/execute", data={"test_case": "sql_error.db"}, headers=admin, timeout=60)
     for _ in range(22):
         requests.post(server + "/api/pipelines/a/execute", data={"test_case": "case_drift_country.json"}, headers=admin, timeout=60)
 
-    _login(page, VIEWER)
-    page.goto(page.url.split("#")[0] + "#/incidents")
+    _login(page, ADMIN_EMAIL)   # the admin sees every run, and only these 23 exist now
+    page.goto(_origin(page) + "/#/incidents")
     page.get_by_text("Incident timeline").wait_for(timeout=10000)
     page.get_by_text("20 of 23").wait_for(timeout=10000)
     assert page.get_by_text("Blocked by guard").count() == 0, "the blocked incident is not on the first page"
@@ -417,3 +446,56 @@ def test_blocked_filter_finds_an_older_incident_beyond_the_first_page(page, serv
 
     button.click()                                   # off again: back to the full list
     page.get_by_text("20 of 23").wait_for(timeout=10000)
+
+
+# ---------------------------------------------------------------- Demo tab (CHANGES.md section 32)
+
+def _load_script(name):
+    import importlib.util
+    sys.path.insert(0, os.path.join(ROOT, "scripts"))
+    spec = importlib.util.spec_from_file_location(name, os.path.join(ROOT, "scripts", f"{name}.py"))
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+def test_demo_tab_shows_the_recording_read_only(page, server):
+    """The recording is made like scripts/make_demo_snapshot.py makes it (13 presets, then read
+    back through the API), here as one Google account so other tests' runs don't get in."""
+    import requests
+    from datetime import datetime, timezone
+    snapmod = _load_script("make_demo_snapshot")
+    rec = _as("recorder@example.com")
+    for folder, pipe in (("pipeline_A", "a"), ("pipeline_B", "b")):
+        for case in sorted(os.listdir(os.path.join(ROOT, "test_data", folder))):
+            requests.post(f"{server}/api/pipelines/{pipe}/execute", headers=rec, data={"test_case": case}, timeout=60)
+    data = snapmod.collect(server, rec)
+    meta = {"recorded_at": datetime.now(timezone.utc).isoformat(), "model": "test-model-xyz", "presets": 13,
+            "as_expected": 13, "gemini_calls": 5}
+    with open(DEMO_FILE, "w", encoding="utf-8") as f:
+        json.dump({"meta": meta, **data}, f)
+    n = len(data["incidents"])
+    assert n >= 8 and data["quarantine"] and data["escalations"]
+
+    _login(page, "visitor@example.com")              # a brand-new viewer with no runs of their own
+    page.get_by_role("link", name="Demo").click()
+    page.get_by_text("Read-only demo").wait_for(timeout=10000)
+    assert "test-model-xyz" in page.inner_text("main") and "13/13 test cases as designed" in page.inner_text("main")
+    page.locator("#timeline-title").get_by_text(f"{min(20, n)} of {n}").wait_for(timeout=10000)
+    # nothing can be run or cleared here
+    for name in ("Run pipeline", "Clear my history", "Clear history", "Try all 13 presets"):
+        assert page.get_by_role("button", name=name).count() == 0, name
+    # filters work on the recording, in the browser
+    page.get_by_role("button", name="Escalated", exact=True).click()
+    page.locator("#timeline-title").get_by_text("matching").wait_for(timeout=5000)
+    page.get_by_role("button", name="Clear filters").first.click()
+    # an incident opens with its agent flow, and its report downloads
+    page.locator("#incident-detail").wait_for(timeout=10000)
+    with page.expect_download() as d:
+        page.get_by_role("button", name="Download JSON report").click()
+    assert json.load(open(d.value.path()))["incident"]["incident_id"].startswith("inc_")
+    # the records of the recording are there too
+    assert page.locator("#records-panel tbody tr").count() > 0
+    # and none of it leaked into the visitor's own incident log
+    page.goto(_origin(page) + "/#/incidents")
+    page.get_by_text("No incidents yet. Run a preset to create one.").wait_for(timeout=10000)

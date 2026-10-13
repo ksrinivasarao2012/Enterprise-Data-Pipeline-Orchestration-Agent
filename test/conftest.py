@@ -10,6 +10,9 @@ os.environ.setdefault("GOOGLE_API_KEY", "test-key-not-used")
 # them on per test.
 os.environ["EHA_ADMIN_KEY"] = ""
 os.environ["EHA_VIEWER_KEY"] = ""
+# Same for Google sign-in (CHANGES.md section 31): off unless a test turns it on (google_on).
+for _name in ("GOOGLE_CLIENT_ID", "EHA_ADMIN_EMAILS", "EHA_SESSION_SECRET"):
+    os.environ[_name] = ""
 
 
 # ---------------------------------------------------------------- shared fixtures
@@ -79,3 +82,69 @@ def client(monkeypatch):
     return c
 
 
+
+
+# ---------------------------------------------------------------- Google sign-in (CHANGES.md section 31)
+# Real Google tokens can't be made in a test, so verify_google_token is replaced: a credential
+# "good:<email>" is accepted as that (verified) Google account, anything else is refused.
+# Everything after that (the session cookie, roles, per-person data) is the real code.
+
+GOOGLE_CLIENT = "test-client.apps.googleusercontent.com"
+ADMIN_EMAIL = "boss@example.com"
+SESSION_SECRET = "test-session-secret-0123456789abcdef"
+CSRF = {"X-Requested-With": "eha"}
+
+
+def fake_google_user(credential: str) -> dict:
+    if not credential.startswith("good:"):
+        raise ValueError("Token used too late / wrong audience")
+    email = credential[5:]
+    return {"sub": "sub-" + email, "email": email.lower(), "name": email.split("@")[0].title()}
+
+
+@pytest.fixture
+def google_on(monkeypatch):
+    """Google sign-in switched on, with boss@example.com as the admin."""
+    monkeypatch.setenv("GOOGLE_CLIENT_ID", GOOGLE_CLIENT)
+    monkeypatch.setenv("EHA_ADMIN_EMAILS", ADMIN_EMAIL)
+    monkeypatch.setenv("EHA_SESSION_SECRET", SESSION_SECRET)
+    import src.api.auth as auth
+    monkeypatch.setattr(auth, "verify_google_token", fake_google_user)
+
+
+def session_headers(email: str) -> dict:
+    """Headers a signed-in browser sends: the login cookie plus the CSRF header.
+    Used for real servers in other processes (they must share EHA_SESSION_SECRET)."""
+    import src.api.auth as auth
+    old = os.environ.get("EHA_SESSION_SECRET")
+    os.environ["EHA_SESSION_SECRET"] = SESSION_SECRET
+    try:
+        token = auth.make_session(fake_google_user("good:" + email))
+    finally:
+        os.environ["EHA_SESSION_SECRET"] = old or ""
+    return {"Cookie": f"{auth.SESSION_COOKIE}={token}", **CSRF}
+
+
+@pytest.fixture
+def sign_in(client, google_on):
+    """sign_in("ann@example.com") -> a TestClient signed in as that Google account
+    (each person gets their own client, so their cookies never mix)."""
+    def _sign_in(email: str) -> TestClient:
+        c = TestClient(app, headers=CSRF)
+        r = c.post("/api/auth/google", json={"credential": "good:" + email})
+        assert r.status_code == 200, r.text
+        return c
+    return _sign_in
+
+
+def server_env_for_google() -> dict:
+    """Environment for a real server (another process) with Google sign-in on."""
+    return {"GOOGLE_CLIENT_ID": GOOGLE_CLIENT, "EHA_SESSION_SECRET": SESSION_SECRET, "EHA_ADMIN_EMAILS": ADMIN_EMAIL}
+
+
+def browser_sign_in(context, base: str, email: str) -> None:
+    """Signs a Playwright browser in as this Google account by giving it the login cookie the
+    server would set after a real Google sign-in (Google itself can't be used in a test)."""
+    import src.api.auth as auth
+    cookie = session_headers(email)["Cookie"].split("=", 1)[1]
+    context.add_cookies([{"name": auth.SESSION_COOKIE, "value": cookie, "url": base, "httpOnly": True, "sameSite": "Lax"}])

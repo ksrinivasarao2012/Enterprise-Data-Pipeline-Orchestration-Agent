@@ -3,7 +3,6 @@ Download report (CHANGES.md section 13): one incident + its audit trail as JSON 
 """
 import pytest
 
-ADMIN, VIEWER = "admin-rep-key", "viewer-rep-key"
 
 
 def _escalated_incident(client, fake_llm):
@@ -54,13 +53,17 @@ def test_unknown_incident_and_bad_format(client, fake_llm):
     assert client.get(f"/api/incidents/{inc['incident_id']}/report?format=exe").status_code == 422
 
 
-def test_report_needs_a_key_but_viewers_may_download(client, fake_llm, monkeypatch):
-    inc = _escalated_incident(client, fake_llm)
-    monkeypatch.setenv("EHA_ADMIN_KEY", ADMIN)
-    monkeypatch.setenv("EHA_VIEWER_KEY", VIEWER)
+def test_report_needs_sign_in_and_viewers_download_their_own(sign_in, fake_llm):
+    ann = sign_in("ann@example.com")
+    fake_llm("UNRESOLVABLE")
+    ann.post("/api/pipelines/b/execute", data={"test_case": "sql_error.db"})
+    inc = ann.get("/api/incidents").json()[0]
     url = f"/api/incidents/{inc['incident_id']}/report"
-    assert client.get(url).status_code == 401
-    assert client.get(url, headers={"X-Access-Key": VIEWER}).status_code == 200
+    from fastapi.testclient import TestClient
+    from src.api.main import app
+    assert TestClient(app).get(url).status_code == 401          # signed out
+    assert ann.get(url).status_code == 200                       # the owner
+    assert sign_in("bob@example.com").get(url).status_code == 404  # someone else (CHANGES.md section 31)
 
 
 # ---------------------------------------------------------------- Unicode in the PDF (CHANGES.md section 27)

@@ -1,15 +1,16 @@
 import { useCallback, useEffect, useState } from 'react';
-import { ApiError, api, setAccessKey, setUnauthorizedHandler, type WhoAmI } from './api';
+import { ApiError, api, setUnauthorizedHandler, type AuthConfig, type WhoAmI } from './api';
 import { Dashboard } from './components/Dashboard';
+import { DemoPage } from './components/DemoPage';
 import { API_DOCS_URL, Header } from './components/Header';
-import { LoginCard } from './components/LoginCard';
+import { LoginCard, forgetGoogleChoice } from './components/LoginCard';
 import { useRoute } from './hooks/useRoute';
 import { useTheme } from './hooks/useTheme';
 
 type Auth =
   | { kind: 'checking' }
   | { kind: 'offline'; message: string }
-  | { kind: 'login' }
+  | { kind: 'login'; config: AuthConfig }
   | { kind: 'ready'; who: WhoAmI };
 
 export default function App() {
@@ -17,31 +18,47 @@ export default function App() {
   const [route, go] = useRoute();
   const [auth, setAuth] = useState<Auth>({ kind: 'checking' });
 
+  const offline = (err: unknown) =>
+    setAuth({ kind: 'offline', message: err instanceof ApiError ? err.detail : 'Cannot reach the API.' });
+
+  /** Show the sign-in page (it needs to know whether Google sign-in is set up). */
+  const showLogin = useCallback(async () => {
+    try {
+      setAuth({ kind: 'login', config: await api.authConfig() });
+    } catch (err) {
+      offline(err);
+    }
+  }, []);
+
   const check = useCallback(async () => {
     setAuth({ kind: 'checking' });
     try {
       setAuth({ kind: 'ready', who: await api.whoami(true) });
     } catch (err) {
-      if (err instanceof ApiError && err.status === 401) setAuth({ kind: 'login' });
-      else setAuth({ kind: 'offline', message: err instanceof ApiError ? err.detail : 'Cannot reach the API.' });
+      if (err instanceof ApiError && err.status === 401) await showLogin();
+      else offline(err);
     }
-  }, []);
+  }, [showLogin]);
 
   useEffect(() => {
-    setUnauthorizedHandler(() => {
-      setAccessKey('');
-      setAuth({ kind: 'login' });
-    });
+    setUnauthorizedHandler(() => void showLogin());
     void check();
-  }, [check]);
+  }, [check, showLogin]);
 
-  const logout = () => {
-    setAccessKey('');
-    setAuth({ kind: 'login' });
+  const logout = async () => {
+    try {
+      await api.logout();
+    } catch {
+      /* already signed out or offline: show the sign-in page anyway */
+    }
+    forgetGoogleChoice();
+    await showLogin();
   };
 
   if (auth.kind === 'login') {
-    return <LoginCard theme={theme} onToggleTheme={toggle} onLoggedIn={(who) => setAuth({ kind: 'ready', who })} />;
+    return (
+      <LoginCard config={auth.config} theme={theme} onToggleTheme={toggle} onLoggedIn={(who) => setAuth({ kind: 'ready', who })} />
+    );
   }
 
   return (
@@ -60,11 +77,12 @@ export default function App() {
         theme={theme}
         onToggleTheme={toggle}
         who={auth.kind === 'ready' ? auth.who : null}
-        onLogout={logout}
+        onLogout={() => void logout()}
         route={route}
       />
       <div className="flex-1">
-        {auth.kind === 'ready' && <Dashboard who={auth.who} route={route} go={go} />}
+        {auth.kind === 'ready' &&
+          (route === 'demo' ? <DemoPage who={auth.who} go={go} /> : <Dashboard who={auth.who} route={route} go={go} />)}
         {auth.kind === 'checking' && (
           <div className="mx-auto max-w-6xl space-y-5 px-4 py-8 sm:px-8" aria-label="Loading">
             <div className="skeleton h-16" />

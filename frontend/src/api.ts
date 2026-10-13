@@ -1,11 +1,25 @@
-// All calls to the FastAPI backend live here. Every request carries the
-// X-Access-Key header; any 401 notifies the app so it can show the login card.
+// All calls to the FastAPI backend live here. People sign in with Google; the server then
+// keeps them signed in with an HttpOnly cookie the page can't read (CHANGES.md section 31).
+// Every request sends the X-Requested-With header, which the server requires for anything that
+// changes data (protection against cross-site request forgery). Any 401 notifies the app so it
+// can show the sign-in page.
 
 export type Role = 'admin' | 'viewer';
+
+/** 'google': sign in with Google · 'open': local development, no sign-in · 'locked': not set up · 'key': scripts only */
+export type AuthMode = 'google' | 'open' | 'locked' | 'key';
 
 export interface WhoAmI {
   role: Role;
   auth_enabled: boolean;
+  mode: AuthMode;
+  email: string;
+  name: string;
+}
+
+export interface AuthConfig {
+  mode: AuthMode;
+  google_client_id: string | null;
 }
 
 export interface Metrics {
@@ -89,27 +103,8 @@ export type ExecuteResult =
   | { status: 'success'; rows_ingested: number; quarantined: true; quarantined_count: number | 'all' }
   | { status: 'failure'; detail: string };
 
-/** Endpoint used by the admin-only "Clear history" button. Change here if the backend differs. */
+/** "Clear history": viewers clear their own runs, the admin clears everything. */
 const CLEAR_HISTORY = { method: 'POST', path: '/api/history/clear' } as const;
-
-const KEY_STORAGE = 'accessKey';
-
-export function getAccessKey(): string {
-  try {
-    return sessionStorage.getItem(KEY_STORAGE) ?? '';
-  } catch {
-    return '';
-  }
-}
-
-export function setAccessKey(key: string): void {
-  try {
-    if (key) sessionStorage.setItem(KEY_STORAGE, key);
-    else sessionStorage.removeItem(KEY_STORAGE);
-  } catch {
-    /* storage unavailable: the key lives only for this page load */
-  }
-}
 
 /** A failed request. status 0 means the API could not be reached at all. */
 export class ApiError extends Error {
@@ -133,7 +128,7 @@ interface RequestOptions {
   method?: string;
   body?: BodyInit;
   signal?: AbortSignal;
-  /** Skip the global 401 handler (used by the login form itself). */
+  /** Skip the global 401 handler (used by the sign-in page itself). */
   quiet401?: boolean;
   /** Extra headers (e.g. the "Try all" demo token). */
   headers?: Record<string, string>;
@@ -160,7 +155,8 @@ async function send(path: string, opts: RequestOptions = {}): Promise<Response> 
       method: opts.method ?? 'GET',
       body: opts.body,
       signal: opts.signal,
-      headers: { ...opts.headers, 'X-Access-Key': getAccessKey(), Accept: 'application/json' },
+      credentials: 'same-origin',
+      headers: { ...opts.headers, 'X-Requested-With': 'eha', Accept: 'application/json' },
     });
   } catch (err) {
     if (err instanceof DOMException && err.name === 'AbortError') throw err;
@@ -210,6 +206,17 @@ async function page<T>(path: string, limit: number, extra: Record<string, string
 
 export const api = {
   whoami: (quiet401 = true) => request<WhoAmI>('/api/whoami', { quiet401 }),
+  /** Public: is sign-in set up, and with which Google app. */
+  authConfig: () => request<AuthConfig>('/api/auth/config', { quiet401: true }),
+  /** Sends Google's ID token; the server checks it and sets the login cookie. */
+  googleLogin: (credential: string) =>
+    request<WhoAmI>('/api/auth/google', {
+      method: 'POST',
+      quiet401: true,
+      body: JSON.stringify({ credential }),
+      headers: { 'Content-Type': 'application/json' },
+    }),
+  logout: () => request<unknown>('/api/auth/logout', { method: 'POST', quiet401: true }),
   metrics: () => request<Metrics>('/api/metrics'),
   incidents: (limit = 20, filters: IncidentFilters = NO_FILTERS) =>
     page<Incident>('/api/incidents', limit, { pipeline: filters.pipeline, outcome: filters.outcome, q: filters.q.trim(), blocked: filters.blocked ? 'true' : '' }),
@@ -234,6 +241,14 @@ export const api = {
       body: form,
       headers: demoToken ? { 'X-Demo-Token': demoToken } : undefined,
     });
+  },
+
+  /** The Demo tab's frozen recording of all 13 presets (404 until one is recorded). */
+  demoSnapshot: () => request<import('./data').DemoSnapshot>('/api/demo/snapshot'),
+  /** Report download for an incident in the recording. */
+  demoReport: async (incidentId: string, format: 'json' | 'pdf'): Promise<Blob> => {
+    const res = await send(`/api/demo/incidents/${encodeURIComponent(incidentId)}/report?format=${format}`);
+    return res.blob();
   },
 
   /** "Try all": counts as one run; the token lets each preset run once without counting again. */

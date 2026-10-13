@@ -50,8 +50,16 @@ export function Header({ theme, onToggleTheme, who, onLogout, route }: Props) {
         </a>
 
         <div className="flex w-full items-center gap-2 sm:w-auto">
+          {who?.email && (
+            <span className="hidden max-w-[220px] truncate text-[13px] text-muted lg:inline" title={who.email}>
+              {who.name || who.email}
+            </span>
+          )}
           {roleLabel && (
-            <span className={`pill ${who?.role === 'admin' && who.auth_enabled ? 'pill-info' : 'pill-neutral'}`}>
+            <span
+              className={`pill ${who?.role === 'admin' && who.auth_enabled ? 'pill-info' : 'pill-neutral'}`}
+              title={who?.email || undefined}
+            >
               {roleLabel}
             </span>
           )}
@@ -64,7 +72,7 @@ export function Header({ theme, onToggleTheme, who, onLogout, route }: Props) {
           </a>
           {who?.auth_enabled && (
             <button type="button" className="btn h-11 sm:h-9" onClick={onLogout}>
-              Log out
+              Sign out
             </button>
           )}
         </div>

@@ -1,5 +1,6 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { ApiError, NO_FILTERS, api, type AuditEntry, type ExecuteResult, type Incident, type IncidentFilters, type Metrics, type WhoAmI } from '../api';
+import { useData } from '../data';
 import { usePolling } from '../hooks/usePolling';
 import type { Route } from '../hooks/useRoute';
 import { guardReason } from '../lib/incident';
@@ -40,9 +41,13 @@ interface Props {
   who: WhoAmI;
   route: Route;
   go: (to: Route) => void;
+  /** Shown above the Demo tab's read-only incident log (CHANGES.md section 32). */
+  demoBanner?: ReactNode;
 }
 
-export function Dashboard({ who, route, go }: Props) {
+export function Dashboard({ who, route, go, demoBanner }: Props) {
+  // Live API, or the Demo tab's frozen recording (src/data.ts).
+  const data = useData();
   const [metrics, setMetrics] = useState<Metrics | null>(null);
   const [incidents, setIncidents] = useState<Incident[] | null>(null);
   const [incidentTotal, setIncidentTotal] = useState(0);
@@ -56,7 +61,7 @@ export function Dashboard({ who, route, go }: Props) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [filters]);
   // Filters only apply on the Incident log; the Run page always follows the newest incident.
-  const activeFilters = route === 'incidents' ? applied : NO_FILTERS;
+  const activeFilters = route === 'incidents' || route === 'demo' ? applied : NO_FILTERS;
   const changeFilters = useCallback((next: IncidentFilters) => {
     setFilters(next);
     setLimit(PAGE_SIZE);
@@ -83,8 +88,8 @@ export function Dashboard({ who, route, go }: Props) {
   const mainRef = useRef<HTMLElement>(null);
   const firstRoute = useRef(true);
 
-  // Open mode (no keys set, local only) gives everyone admin rights on the server, so the
-  // admin-only buttons (Clear history) must show there too (CHANGES.md section 21).
+  // Everyone can clear history: viewers clear only their own runs, the admin clears everything
+  // (CHANGES.md section 31). Open mode (local only) counts as admin (section 21).
   const isAdmin = who.role === 'admin';
 
   // Move focus to the new page for keyboard and screen-reader users.
@@ -129,7 +134,7 @@ export function Dashboard({ who, route, go }: Props) {
       if (fetchingAudit.current.has(inc.incident_id)) return;
       fetchingAudit.current.add(inc.incident_id);
       try {
-        const entries = await api.audit(inc.incident_id);
+        const entries = await data.audit(inc.incident_id);
         setAudits((prev) => {
           const old = prev[inc.incident_id];
           if (old && old.status === inc.status && JSON.stringify(old.entries) === JSON.stringify(entries)) return prev;
@@ -141,12 +146,12 @@ export function Dashboard({ who, route, go }: Props) {
         fetchingAudit.current.delete(inc.incident_id);
       }
     },
-    [handleError],
+    [handleError, data],
   );
 
   const poll = useCallback(async () => {
     try {
-      const [m, page] = await Promise.all([api.metrics(), api.incidents(limit, activeFilters)]);
+      const [m, page] = await Promise.all([data.metrics(), data.incidents(limit, activeFilters)]);
       const sorted = [...page.items].sort(byNewest);
       setIncidentTotal(page.total);
       setMetrics((prev) => same(prev, m));
@@ -178,7 +183,7 @@ export function Dashboard({ who, route, go }: Props) {
     } catch (err) {
       handleError(err);
     }
-  }, [handleError, loadAudit, limit, activeFilters]);
+  }, [handleError, loadAudit, limit, activeFilters, data]);
 
   usePolling(poll, liveRun ? LIVE_POLL_MS : POLL_MS, true, [limit, activeFilters]);
 
@@ -351,13 +356,38 @@ export function Dashboard({ who, route, go }: Props) {
             selectedAudit={selectedAudit}
             step={step}
             onReplay={replay}
-            isAdmin={isAdmin}
+            clearLabel={isAdmin ? 'Clear history' : 'Clear my history'}
             onClearHistory={() => {
               setClearError(null);
               setConfirmOpen(true);
             }}
             onGoRun={() => go('run')}
           />
+        </>
+      )}
+
+      {route === 'demo' && (
+        <>
+          <PageTitle title="Demo" accent="All 13 test cases, recorded." />
+          {demoBanner}
+          <MetricsStrip metrics={metrics} />
+          <IncidentTimeline
+            incidents={incidents}
+            total={incidentTotal}
+            onShowMore={() => setLimit((l) => l + PAGE_SIZE)}
+            filters={filters}
+            onFiltersChange={changeFilters}
+            selectedId={selectedId}
+            onSelect={select}
+            blockedReasons={blockedReasons}
+            blockedCount={metrics?.blocked_by_guard ?? 0}
+            selectedAudit={selectedAudit}
+            step={step}
+            onReplay={replay}
+            onGoRun={() => go('run')}
+          />
+          <h3 className="pt-4 text-lg font-semibold">Records</h3>
+          <RecordsTabs refreshKey={refreshKey} />
         </>
       )}
 
@@ -369,18 +399,20 @@ export function Dashboard({ who, route, go }: Props) {
         </>
       )}
 
-      {isAdmin && (
-        <ConfirmDialog
-          open={confirmOpen}
-          title="Clear all history?"
-          body="This deletes every incident, audit entry, quarantined row and escalation. It cannot be undone."
-          confirmLabel="Clear history"
-          busy={clearing}
-          error={clearError}
-          onConfirm={clearHistory}
-          onCancel={() => setConfirmOpen(false)}
-        />
-      )}
+      <ConfirmDialog
+        open={confirmOpen}
+        title={isAdmin ? 'Clear all history?' : 'Clear your history?'}
+        body={
+          isAdmin
+            ? "This deletes every incident, audit entry, quarantined row and escalation, for everyone. It cannot be undone."
+            : 'This deletes your incidents, audit entries, quarantined rows and escalations. Other people\'s runs are not touched. It cannot be undone.'
+        }
+        confirmLabel={isAdmin ? 'Clear history' : 'Clear my history'}
+        busy={clearing}
+        error={clearError}
+        onConfirm={clearHistory}
+        onCancel={() => setConfirmOpen(false)}
+      />
     </main>
   );
 }

@@ -1,8 +1,10 @@
 import { useState } from 'react';
-import { ApiError, api } from '../api';
+import { ApiError } from '../api';
+import { useData } from '../data';
 
-/** "Download report" buttons: fetch with the access key, then hand the file to the browser to save. */
+/** "Download report" buttons: fetch the file (signed in), then hand it to the browser to save. */
 export function DownloadReport({ incidentId }: { incidentId: string }) {
+  const data = useData();
   const [busy, setBusy] = useState<'json' | 'pdf' | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -10,7 +12,7 @@ export function DownloadReport({ incidentId }: { incidentId: string }) {
     setBusy(format);
     setError(null);
     try {
-      const blob = await api.report(incidentId, format);
+      const blob = await data.report(incidentId, format);
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;

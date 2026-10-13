@@ -1,14 +1,108 @@
-import { useState, type FormEvent, type ReactNode } from 'react';
-import { ApiError, api, setAccessKey, type WhoAmI } from '../api';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { ApiError, api, type AuthConfig, type WhoAmI } from '../api';
 import type { Theme } from '../hooks/useTheme';
 import { DemoLoop } from './DemoLoop';
 import { API_DOCS_URL, GITHUB_URL, ThemeToggle } from './Header';
 import { FileXIcon, FlowIcon, GitHubIcon, LogoIcon, ShieldIcon } from './icons';
 
 interface Props {
+  config: AuthConfig;
   onLoggedIn: (who: WhoAmI) => void;
   theme: Theme;
   onToggleTheme: () => void;
+}
+
+// ---- Google Identity Services ("Sign in with Google" button), loaded only on this page.
+interface GoogleId {
+  initialize: (opts: { client_id: string; callback: (r: { credential?: string }) => void; ux_mode?: 'popup'; auto_select?: boolean; itp_support?: boolean }) => void;
+  renderButton: (el: HTMLElement, opts: Record<string, string | number>) => void;
+  disableAutoSelect: () => void;
+}
+declare global {
+  interface Window {
+    google?: { accounts?: { id?: GoogleId } };
+  }
+}
+
+const GIS_SRC = 'https://accounts.google.com/gsi/client';
+let gisLoading: Promise<GoogleId> | null = null;
+
+function loadGoogle(): Promise<GoogleId> {
+  const ready = window.google?.accounts?.id;
+  if (ready) return Promise.resolve(ready);
+  gisLoading ??= new Promise<GoogleId>((resolve, reject) => {
+    const s = document.createElement('script');
+    s.src = GIS_SRC;
+    s.async = true;
+    s.onload = () => {
+      const id = window.google?.accounts?.id;
+      if (id) resolve(id);
+      else reject(new Error('Google sign-in did not start.'));
+    };
+    s.onerror = () => {
+      gisLoading = null;
+      s.remove();
+      reject(new Error('Could not load Google sign-in.'));
+    };
+    document.head.appendChild(s);
+  });
+  return gisLoading;
+}
+
+/** After signing out, stop Google from signing the same account in again by itself. */
+export function forgetGoogleChoice(): void {
+  try {
+    window.google?.accounts?.id?.disableAutoSelect();
+  } catch {
+    /* not loaded: nothing to forget */
+  }
+}
+
+function GoogleButton({ clientId, theme, onCredential }: { clientId: string; theme: Theme; onCredential: (c: string) => void }) {
+  const box = useRef<HTMLDivElement>(null);
+  const [failed, setFailed] = useState<string | null>(null);
+  const callback = useRef(onCredential);
+  callback.current = onCredential;
+
+  useEffect(() => {
+    let cancelled = false;
+    loadGoogle()
+      .then((id) => {
+        if (cancelled || !box.current) return;
+        id.initialize({
+          client_id: clientId,
+          callback: (r) => r.credential && callback.current(r.credential),
+          ux_mode: 'popup',
+          auto_select: false,
+          itp_support: true,
+        });
+        box.current.innerHTML = '';
+        id.renderButton(box.current, {
+          type: 'standard',
+          theme: theme === 'dark' ? 'filled_black' : 'outline',
+          size: 'large',
+          text: 'signin_with',
+          shape: 'pill',
+          logo_alignment: 'left',
+          width: Math.min(320, box.current.clientWidth || 320),
+        });
+      })
+      .catch((e: Error) => !cancelled && setFailed(e.message));
+    return () => {
+      cancelled = true;
+    };
+  }, [clientId, theme]);
+
+  return (
+    <div className="space-y-2">
+      <div ref={box} data-testid="google-button" className={failed ? 'hidden' : 'flex min-h-[44px] w-full justify-center'} />
+      {failed && (
+        <p role="alert" className="text-[13px] text-bad">
+          {failed} Check your connection and reload the page.
+        </p>
+      )}
+    </div>
+  );
 }
 
 const STEPS: { icon: ReactNode; title: string; text: string }[] = [
@@ -19,29 +113,24 @@ const STEPS: { icon: ReactNode; title: string; text: string }[] = [
 
 const STACK = ['FastAPI', 'LangGraph', 'Google Gemini', 'sqlglot'];
 
-/** Login page: a short pitch of the project beside the access-key form. */
-export function LoginCard({ onLoggedIn, theme, onToggleTheme }: Props) {
-  const [key, setKey] = useState('');
+/** Sign-in page: a short pitch of the project beside the "Sign in with Google" card. */
+export function LoginCard({ config, onLoggedIn, theme, onToggleTheme }: Props) {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
-  async function submit(e: FormEvent) {
-    e.preventDefault();
-    if (busy || !key.trim()) return;
+  async function signIn(credential: string) {
     setBusy(true);
     setError(null);
-    setAccessKey(key.trim());
     try {
-      onLoggedIn(await api.whoami(true));
+      onLoggedIn(await api.googleLogin(credential));
     } catch (err) {
-      setAccessKey('');
-      if (err instanceof ApiError && err.status === 401) setError('Wrong key. Try again.');
-      else if (err instanceof ApiError) setError(err.detail);
-      else setError('Something went wrong. Try again.');
+      setError(err instanceof ApiError ? err.detail : 'Sign-in failed. Try again.');
     } finally {
       setBusy(false);
     }
   }
+
+  const clientId = config.mode === 'google' ? config.google_client_id : null;
 
   return (
     <div className="flex min-h-screen flex-col">
@@ -93,47 +182,39 @@ export function LoginCard({ onLoggedIn, theme, onToggleTheme }: Props) {
           </ul>
         </section>
 
-        <form
-          onSubmit={submit}
-          noValidate
+        <section
+          aria-labelledby="signin-title"
           className="card order-2 w-full space-y-5 self-start p-6 shadow-sm sm:p-7 lg:order-none lg:sticky lg:top-8 lg:col-start-2 lg:row-span-2 lg:row-start-1 lg:mt-10"
         >
           <div className="space-y-1.5">
-            <div className="eyebrow">Restricted demo</div>
-            <h2 className="font-display text-[34px] leading-none tracking-tight">Log in</h2>
-            <p className="text-sm text-muted">Ask the owner for a viewer key.</p>
+            <div className="eyebrow">Live demo</div>
+            <h2 id="signin-title" className="font-display text-[34px] leading-none tracking-tight">
+              Sign in
+            </h2>
+            <p className="text-sm text-muted">Use your Google account. You get your own space: only you see your test runs.</p>
           </div>
-          <div className="space-y-1.5">
-            <label htmlFor="access-key" className="block text-[13px] font-medium">
-              Access key
-            </label>
-            <input
-              id="access-key"
-              type="password"
-              autoComplete="current-password"
-              autoFocus
-              value={key}
-              onChange={(e) => {
-                setKey(e.target.value);
-                if (error) setError(null);
-              }}
-              aria-invalid={!!error}
-              aria-describedby={error ? 'access-key-error' : undefined}
-              className={`h-11 w-full rounded-lg border bg-bg px-3 text-sm text-fg ${error ? 'border-bad' : 'border-line'}`}
-            />
-            {error && (
-              <p id="access-key-error" role="alert" className="text-[13px] text-bad">
-                {error}
-              </p>
-            )}
-          </div>
-          <button type="submit" className="btn-primary w-full" disabled={busy}>
-            {busy ? 'Checking…' : 'Log in'}
-          </button>
+          {clientId ? (
+            <GoogleButton clientId={clientId} theme={theme} onCredential={(c) => void signIn(c)} />
+          ) : (
+            <p role="status" className="rounded-lg border border-line bg-bg px-3 py-2.5 text-sm text-muted">
+              Sign-in is not set up on this server yet. Ask the owner to add a Google client id.
+            </p>
+          )}
+          {busy && (
+            <p role="status" className="text-[13px] text-muted">
+              Signing you in…
+            </p>
+          )}
+          {error && (
+            <p role="alert" className="text-[13px] text-bad">
+              {error}
+            </p>
+          )}
           <p className="border-t border-line pt-4 text-[13px] text-muted">
-            Viewers can run tests and read results. Admins can also clear history.
+            We keep only your name and email, to show who is signed in and to keep your runs separate. After signing in, the
+            Demo tab shows the app after all 13 test cases.
           </p>
-        </form>
+        </section>
       </main>
 
       <footer className="border-t border-line">

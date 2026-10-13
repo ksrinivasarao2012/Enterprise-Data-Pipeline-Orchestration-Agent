@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useState } from 'react';
 
-export type Route = 'run' | 'incidents' | 'records';
+export type Route = 'run' | 'incidents' | 'records' | 'demo';
 
 export const ROUTES: { id: Route; label: string }[] = [
   { id: 'run', label: 'Run a test' },
   { id: 'incidents', label: 'Incidents' },
   { id: 'records', label: 'Records' },
+  { id: 'demo', label: 'Demo' },
 ];
 
 function parse(): Route {
@@ -13,7 +14,7 @@ function parse(): Route {
   return ROUTES.some((r) => r.id === h) ? (h as Route) : 'run';
 }
 
-/** Tiny hash router: #/run, #/incidents, #/records. */
+/** Tiny hash router: #/run, #/incidents, #/records, #/demo. */
 export function useRoute() {
   const [route, setRoute] = useState<Route>(parse);
 

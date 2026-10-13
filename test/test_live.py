@@ -19,6 +19,8 @@ import time
 
 import pytest
 
+from conftest import ADMIN_EMAIL, browser_sign_in, server_env_for_google
+
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DIST = os.path.join(ROOT, "frontend", "dist", "index.html")
 ADMIN = "admin-live-key"
@@ -69,7 +71,7 @@ def server():
     script = os.path.join(tempfile.mkdtemp(), "server.py")
     open(script, "w").write(SERVER)
     env = dict(os.environ, EHA_DB_DIR=tempfile.mkdtemp(prefix="eha_live_"), PYTHONPATH=ROOT,
-               EHA_ADMIN_KEY=ADMIN, EHA_VIEWER_KEY="", EHA_UI="", GOOGLE_API_KEY="x")
+               EHA_ADMIN_KEY=ADMIN, EHA_VIEWER_KEY="", EHA_UI="", GOOGLE_API_KEY="x", **server_env_for_google())
     proc = subprocess.Popen([sys.executable, script, ROOT, str(port), str(DELAY)], cwd=ROOT, env=env,
                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     base = f"http://127.0.0.1:{port}"
@@ -136,11 +138,11 @@ def test_dashboard_lights_up_steps_during_the_run(server):
     from playwright.sync_api import sync_playwright
     with sync_playwright() as p:
         browser = p.chromium.launch()
-        page = browser.new_page(viewport={"width": 1400, "height": 1000})
+        context = browser.new_context(viewport={"width": 1400, "height": 1000})
+        browser_sign_in(context, server, ADMIN_EMAIL)
+        page = context.new_page()
         page.goto(server)
-        page.fill("input[type=password]", ADMIN)
-        page.keyboard.press("Enter")
-        page.get_by_role("button", name="Log out").wait_for(timeout=10000)
+        page.get_by_role("button", name="Sign out").wait_for(timeout=10000)
         page.get_by_text("Broken JSON syntax").click()
         page.get_by_role("button", name="Run pipeline").click()
 

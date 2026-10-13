@@ -1,35 +1,11 @@
 {
-  "version": 2,
-  "builds": [
-    {
-      "src": "src/api/main.py",
-      "use": "@vercel/python"
-    },
-    {
-      "src": "public/**",
-      "use": "@vercel/static"
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "framework": "fastapi",
+  "buildCommand": "cd frontend && npm ci && npm run build",
+  "functions": {
+    "src/api/main.py": {
+      "maxDuration": 60,
+      "excludeFiles": "{frontend/node_modules/**,frontend/src/**,test/**,scratch/**,scripts/**,runbooks/**,venv/**,*.png,*.zip}"
     }
-  ],
-  "routes": [
-    {
-      "src": "/api/(.*)",
-      "dest": "src/api/main.py"
-    },
-    {
-      "src": "/telemetry/incident",
-      "dest": "src/api/main.py"
-    },
-    {
-      "src": "/runs/(.*)",
-      "dest": "src/api/main.py"
-    },
-    {
-      "src": "/app.js",
-      "dest": "public/app.js"
-    },
-    {
-      "src": "/(.*)",
-      "dest": "public/index.html"
-    }
-  ]
+  }
 }

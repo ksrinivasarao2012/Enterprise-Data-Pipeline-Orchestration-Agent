@@ -26,13 +26,18 @@ The production files are written to `frontend/dist`. Serve them from the same or
 
 ## Pages
 
-- **Login** — shown when `GET /api/whoami` returns 401. The key is kept in `sessionStorage` and sent as
-  `X-Access-Key` on every request; any 401 returns you here.
+- **Sign in** — shown when `GET /api/whoami` returns 401: a "Sign in with Google" button. The server checks
+  Google's token and keeps you signed in with an HttpOnly cookie (7 days); every request also sends
+  `X-Requested-With: eha`. Any 401 returns you here.
 - **Run a test** (`#/run`) — pick a preset or upload a file, run pipeline A or B, and watch the agent flow replay
   the incident the run created.
 - **Incidents** (`#/incidents`) — metrics, the incident timeline, a "Show only blocked fixes" filter, and the
-  selected incident's audit trail, guard callout and technical details. Admins also see "Clear history".
-- **Records** (`#/records`) — quarantined rows and escalations.
+  selected incident's audit trail, guard callout and technical details. Viewers see only their own runs and can
+  "Clear my history"; the admin sees everyone's and can clear all.
+- **Records** (`#/records`) — quarantined rows and escalations (your own).
+- **Demo** (`#/demo`) — read-only: the app after all 13 presets, from a recording made with real Gemini
+  (`demo/snapshot.json`, made by `python scripts/make_demo_snapshot.py`). Data comes through `src/data.ts`,
+  so the same components show live data and the recording.
 
 ## Notes
 

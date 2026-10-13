@@ -33,3 +33,9 @@ local = [
 
 [tool.vercel]
 entrypoint = "src.api.main:app"
+
+# The React build (frontend/dist) is mounted with StaticFiles in src/api/main.py. Vercel moves
+# those files to its CDN; cdn = true keeps that on even though main.py has a middleware
+# (the middleware only creates the database tables, the static files need no login).
+[tool.vercel.fastapi.static]
+cdn = true

@@ -29,7 +29,9 @@ from src.services.remediation_service import RemediationService
 from src.telemetry.logger import get_pipeline_logger
 from src.config import get_database_paths, reset_pipeline_configs
 from src.database import get_db_connection
-from src.api.auth import require_viewer, require_admin, check_run_limit, auth_enabled, start_demo
+from pydantic import BaseModel
+from src.api import auth, ownership
+from src.api.auth import Principal, require_user, require_admin, check_run_limit, start_demo
 
 logger = get_pipeline_logger("control_plane")
 
@@ -246,15 +248,66 @@ async def report_pipeline_incident(payload: IncidentSchema, background_tasks: Ba
 
 # --- UI Dashboard Support Routes ---
 
+def _whoami(who: Principal) -> dict:
+    return {"role": who.role, "auth_enabled": auth.auth_enabled(), "mode": auth.auth_mode(),
+            "email": who.email, "name": who.name}
+
+
 @app.get("/api/whoami")
-async def whoami(role: str = Depends(require_viewer)):
-    """Tells the dashboard who is logged in, so it can hide admin-only buttons."""
-    return {"role": role, "auth_enabled": auth_enabled()}
+async def whoami(who: Principal = Depends(require_user)):
+    """Tells the dashboard who is signed in, so it can show their name and the right buttons."""
+    return _whoami(who)
 
 
-@app.get("/api/metrics", dependencies=[Depends(require_viewer)])
-async def get_metrics():
-    paths = get_database_paths()
+# --- Google sign-in (CHANGES.md section 31) ---
+
+@app.get("/api/auth/config")
+async def auth_config():
+    """Public: what the sign-in page needs before anyone is signed in. The Google client id is
+    not a secret (it is in every page that shows a Google button)."""
+    return {"mode": auth.auth_mode(), "google_client_id": auth.google_client_id() or None}
+
+
+class GoogleLogin(BaseModel):
+    credential: str
+
+
+@app.post("/api/auth/google")
+async def google_login(payload: GoogleLogin, request: Request, response: Response):
+    """Checks Google's ID token, remembers the person and sets the login cookie."""
+    if auth.auth_mode() != "google":
+        raise HTTPException(status_code=400, detail="Google sign-in is not set up on this server.")
+    if request.headers.get(auth.CSRF_HEADER) != auth.CSRF_VALUE:
+        raise HTTPException(status_code=403, detail="Missing request header. Reload the page and try again.")
+    if not payload.credential or len(payload.credential) > 8192:
+        raise HTTPException(status_code=400, detail="Missing Google sign-in token.")
+    try:
+        user = await run_in_threadpool(auth.verify_google_token, payload.credential)
+    except ValueError as e:
+        logger.warning("Google sign-in refused", error=str(e))
+        raise HTTPException(status_code=401, detail="Google sign-in failed. Please try again.")
+    try:
+        ownership.save_user(user)
+    except Exception as e:  # the login still works; only the "last seen" record is missing
+        logger.error("Could not save user", error=str(e))
+    auth.set_session_cookie(response, request, auth.make_session(user))
+    return _whoami(auth.principal_for(user))
+
+
+@app.post("/api/auth/logout")
+async def logout(response: Response):
+    """Removes the login cookie. Works even when already signed out."""
+    auth.clear_session_cookie(response)
+    return {"status": "signed_out"}
+
+
+@app.get("/api/metrics")
+async def get_metrics(who: Principal = Depends(require_user)):
+    """The counters at the top of the Incident log. Viewers count only their own runs."""
+    own, own_params = ownership.scope(who)
+    and_own = f" AND {own}" if own else ""
+    where_own = f" WHERE {own}" if own else ""
+    p = tuple(own_params)
     runs_without_incident = 0
     resolved_count = 0
     investigating_count = 0
@@ -264,31 +317,31 @@ async def get_metrics():
     try:
         with get_db_connection("state_db") as conn:
             cursor = conn.cursor()
-            cursor.execute("""
+            cursor.execute(f"""
                 SELECT COUNT(*) FROM pipeline_runs 
                 WHERE status = 'SUCCESS' 
-                  AND run_id NOT IN (SELECT DISTINCT run_id FROM incidents)
-            """)
+                  AND run_id NOT IN (SELECT DISTINCT run_id FROM incidents){and_own}
+            """, p)
             runs_without_incident = cursor.fetchone()[0]
             
             # "Healed" counts only incidents the agents fixed. Quarantine-only warnings (bad rows set
             # aside, the rest loaded, no agent run) are counted under "quarantined" instead.
             cursor.execute(
                 "SELECT COUNT(*) FROM incidents WHERE status = 'RESOLVED' "
-                "AND error_class NOT IN ('DataQualityAnomaly', 'ReferentialIntegrityAnomaly')"
+                "AND error_class NOT IN ('DataQualityAnomaly', 'ReferentialIntegrityAnomaly')" + and_own, p
             )
             resolved_count = cursor.fetchone()[0]
             
-            cursor.execute("SELECT COUNT(*) FROM incidents WHERE status = 'INVESTIGATING'")
+            cursor.execute("SELECT COUNT(*) FROM incidents WHERE status = 'INVESTIGATING'" + and_own, p)
             investigating_count = cursor.fetchone()[0]
             
-            cursor.execute("SELECT COUNT(*) FROM incidents WHERE status = 'ESCALATED'")
+            cursor.execute("SELECT COUNT(*) FROM incidents WHERE status = 'ESCALATED'" + and_own, p)
             escalated_count = cursor.fetchone()[0]
             
-            cursor.execute("SELECT COUNT(*) FROM quarantined_records")
+            cursor.execute("SELECT COUNT(*) FROM quarantined_records" + where_own, p)
             quarantined_count = cursor.fetchone()[0]
 
-            cursor.execute("SELECT COUNT(*) FROM incidents WHERE blocked_by_guard = 1")
+            cursor.execute("SELECT COUNT(*) FROM incidents WHERE blocked_by_guard = 1" + and_own, p)
             blocked_count = cursor.fetchone()[0]
     except Exception as e:
         logger.exception("Failed to query metrics from state DB", error=str(e))
@@ -303,9 +356,10 @@ async def get_metrics():
     }
 
 
-@app.get("/api/incidents", dependencies=[Depends(require_viewer)])
+@app.get("/api/incidents")
 async def get_incidents(
     response: Response,
+    who: Principal = Depends(require_user),
     limit: int = Query(50, ge=1, le=200, description="How many incidents to return (newest first)"),
     offset: int = Query(0, ge=0, description="How many of the newest incidents to skip"),
     pipeline: Optional[str] = Query(None, pattern="^PIPELINE_[AB]$", description="Only this pipeline"),
@@ -317,7 +371,8 @@ async def get_incidents(
     """One page of incidents, newest first. The total (after filters) is in the X-Total-Count
     header, so the dashboard can show "20 of 134" and load more on request."""
     try:
-        incidents, total = IncidentRepository.get_incidents_page(limit, offset, pipeline, outcome, (q or "").strip() or None, blocked)
+        incidents, total = IncidentRepository.get_incidents_page(limit, offset, pipeline, outcome, (q or "").strip() or None, blocked,
+                                                                ownership.scope(who))
         response.headers["X-Total-Count"] = str(total)
         return [i.model_dump() for i in incidents]
     except Exception as e:
@@ -325,24 +380,35 @@ async def get_incidents(
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@app.get("/api/quarantine", dependencies=[Depends(require_viewer)])
+@app.get("/api/quarantine")
 async def get_quarantine_records(
     response: Response,
+    who: Principal = Depends(require_user),
     limit: int = Query(50, ge=1, le=200, description="Page size (newest first)"),
     offset: int = Query(0, ge=0, description="How many newest records to skip"),
 ):
     """One page of quarantined rows; the total is in the X-Total-Count header (CHANGES.md section 17)."""
     try:
         from src.services.quarantine_service import QuarantineService
-        records = QuarantineService.get_quarantined_records(limit, offset)
-        response.headers["X-Total-Count"] = str(QuarantineService.count_quarantined_records())
+        records = QuarantineService.get_quarantined_records(limit, offset, ownership.scope(who))
+        response.headers["X-Total-Count"] = str(QuarantineService.count_quarantined_records(ownership.scope(who)))
         return records
     except Exception as e:
         logger.exception("Failed to query quarantined records", error=str(e))
         raise HTTPException(status_code=500, detail=str(e))
 
-@app.get("/api/incidents/{incident_id}/audit", dependencies=[Depends(require_viewer)])
-async def get_incident_audit(incident_id: str):
+def _visible_incident(incident_id: str, who: Principal):
+    """The incident if this person may see it. Someone else's incident answers 404, exactly like
+    one that doesn't exist, so the API doesn't even reveal that it exists."""
+    incident = IncidentRepository.get_incident(incident_id)
+    if incident is None or not ownership.owns_run(who, incident.run_id):
+        raise HTTPException(status_code=404, detail="Incident not found.")
+    return incident
+
+
+@app.get("/api/incidents/{incident_id}/audit")
+async def get_incident_audit(incident_id: str, who: Principal = Depends(require_user)):
+    _visible_incident(incident_id, who)
     try:
         audit_trail = IncidentRepository.get_audit_trail(incident_id)
         return audit_trail
@@ -350,13 +416,12 @@ async def get_incident_audit(incident_id: str):
         logger.exception("Failed to query audit trail", incident_id=incident_id, error=str(e))
         raise HTTPException(status_code=500, detail=str(e))
 
-@app.get("/api/incidents/{incident_id}/report", dependencies=[Depends(require_viewer)])
-async def get_incident_report(incident_id: str, format: str = Query("json", pattern="^(json|pdf)$")):
+@app.get("/api/incidents/{incident_id}/report")
+async def get_incident_report(incident_id: str, format: str = Query("json", pattern="^(json|pdf)$"),
+                              who: Principal = Depends(require_user)):
     """Download one incident and its audit trail as JSON or PDF (CHANGES.md section 13)."""
     from src.services.report_service import build_pdf, build_report
-    incident = IncidentRepository.get_incident(incident_id)
-    if incident is None:
-        raise HTTPException(status_code=404, detail="Incident not found.")
+    incident = _visible_incident(incident_id, who)
     report = build_report(incident.model_dump(mode="json"), IncidentRepository.get_audit_trail(incident_id))
     name = f"{incident.incident_id}_report"
     if format == "json":
@@ -367,9 +432,10 @@ async def get_incident_report(incident_id: str, format: str = Query("json", patt
         raise HTTPException(status_code=501, detail="PDF export needs fpdf2: pip install -r requirements.txt")
     return Response(pdf, media_type="application/pdf", headers={"Content-Disposition": f'attachment; filename="{name}.pdf"'})
 
-@app.get("/api/escalations", dependencies=[Depends(require_viewer)])
+@app.get("/api/escalations")
 async def get_escalations(
     response: Response,
+    who: Principal = Depends(require_user),
     limit: int = Query(50, ge=1, le=200, description="Page size (newest first)"),
     offset: int = Query(0, ge=0, description="How many newest escalations to skip"),
 ):
@@ -379,7 +445,7 @@ async def get_escalations(
     this page get their plain-English text (sections 16 and 17)."""
     from src.incidents.escalation_text import explain
     try:
-        incidents, total = IncidentRepository.get_incidents_page(limit, offset, outcome="escalated")
+        incidents, total = IncidentRepository.get_incidents_page(limit, offset, outcome="escalated", scope=ownership.scope(who))
     except Exception as e:
         logger.exception("Failed to query escalations", error=str(e))
         raise HTTPException(status_code=500, detail=str(e))
@@ -397,8 +463,50 @@ async def get_escalations(
         page.append(item)
     return page
 
+# --- Demo tab (CHANGES.md section 32) ---
+# A frozen recording of all 13 presets (made with real Gemini by scripts/make_demo_snapshot.py),
+# so anyone signed in can see what the app looks like after a full run without running anything.
+
+def _demo_snapshot_path() -> str:
+    return os.environ.get("EHA_DEMO_SNAPSHOT") or os.path.join(REPO_ROOT, "demo", "snapshot.json")
+
+
+def _load_demo_snapshot() -> dict:
+    import json
+    try:
+        with open(_demo_snapshot_path(), encoding="utf-8") as f:
+            return json.load(f)
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail="No demo has been recorded yet.")
+
+
+@app.get("/api/demo/snapshot", dependencies=[Depends(require_user)])
+async def demo_snapshot():
+    """The whole recording: incidents, their audit trails, quarantined rows, escalations, counters."""
+    return _load_demo_snapshot()
+
+
+@app.get("/api/demo/incidents/{incident_id}/report", dependencies=[Depends(require_user)])
+async def demo_incident_report(incident_id: str, format: str = Query("json", pattern="^(json|pdf)$")):
+    """Report download for an incident in the recording (same files as a live incident)."""
+    from src.services.report_service import build_pdf, build_report
+    snap = _load_demo_snapshot()
+    incident = next((i for i in snap.get("incidents", []) if i.get("incident_id") == incident_id), None)
+    if incident is None:
+        raise HTTPException(status_code=404, detail="Incident not found.")
+    report = build_report(incident, snap.get("audits", {}).get(incident_id, []))
+    name = f"{incident_id}_report"
+    if format == "json":
+        return JSONResponse(report, headers={"Content-Disposition": f'attachment; filename="{name}.json"'})
+    try:
+        pdf = build_pdf(report)
+    except ImportError:
+        raise HTTPException(status_code=501, detail="PDF export needs fpdf2: pip install -r requirements.txt")
+    return Response(pdf, media_type="application/pdf", headers={"Content-Disposition": f'attachment; filename="{name}.pdf"'})
+
+
 @app.post("/api/demo/start")
-async def start_try_all_demo(request: Request, role: str = Depends(require_viewer)):
+async def start_try_all_demo(request: Request, who: Principal = Depends(require_user)):
     """'Try all' button: counts as one run, then each preset may run once without counting
     against the viewer limit (CHANGES.md section 14)."""
     presets = []
@@ -406,14 +514,14 @@ async def start_try_all_demo(request: Request, role: str = Depends(require_viewe
         path = os.path.join(REPO_ROOT, "test_data", folder)
         if os.path.isdir(path):
             presets += [(pipe, name) for name in sorted(os.listdir(path))]
-    token = start_demo(request, role, presets)
+    token = start_demo(request, who, presets)
     return {"token": token, "presets": [{"pipeline": p, "test_case": c} for p, c in presets]}
 
 
 @app.post("/api/pipelines/a/execute")
 async def execute_pipeline_a(
     request: Request,
-    role: str = Depends(require_viewer),
+    who: Principal = Depends(require_user),
     test_case: Optional[str] = Form(None),
     file: Optional[UploadFile] = File(None)
 ):
@@ -432,9 +540,9 @@ async def execute_pipeline_a(
     os.makedirs(os.path.dirname(temp_file_path), exist_ok=True)
     
     # Validate the request BEFORE doing any work (security fixes 2 and 4).
-    check_run_limit(request, role, None if file else ("a", test_case))
+    check_run_limit(request, who, None if file else ("a", test_case))
     if file:
-        contents = await _read_upload(file, role)
+        contents = await _read_upload(file, who.role)
     elif test_case:
         test_file_path = _resolve_test_case("pipeline_A", test_case)
     else:
@@ -453,6 +561,7 @@ async def execute_pipeline_a(
         
             import uuid
             run_id = f"run_a_{uuid.uuid4().hex[:6]}"
+            ownership.tag_run(run_id, who.owner)  # whose run this is (CHANGES.md section 31)
 
             result = await run_in_threadpool(
                 pipeline.execute,
@@ -516,7 +625,7 @@ async def execute_pipeline_a(
 @app.post("/api/pipelines/b/execute")
 async def execute_pipeline_b(
     request: Request,
-    role: str = Depends(require_viewer),
+    who: Principal = Depends(require_user),
     test_case: Optional[str] = Form(None),
     file: Optional[UploadFile] = File(None)
 ):
@@ -531,9 +640,9 @@ async def execute_pipeline_b(
     original_filename = "telemetry.db"
     
     # Validate the request BEFORE doing any work (security fixes 2 and 4).
-    check_run_limit(request, role, None if file else ("b", test_case))
+    check_run_limit(request, who, None if file else ("b", test_case))
     if file:
-        contents = await _read_upload(file, role)
+        contents = await _read_upload(file, who.role)
     elif test_case:
         test_file_path = _resolve_test_case("pipeline_B", test_case)
     else:
@@ -558,6 +667,7 @@ async def execute_pipeline_b(
         
             import uuid
             run_id = f"run_b_{uuid.uuid4().hex[:6]}"
+            ownership.tag_run(run_id, who.owner)  # whose run this is (CHANGES.md section 31)
 
             result = await run_in_threadpool(
                 pipeline.execute,
@@ -624,11 +734,18 @@ async def execute_pipeline_b(
             logger.exception("Error executing pipeline B", error=str(ex))
             raise HTTPException(status_code=500, detail=f"Error executing pipeline B: {str(ex)}")
 
-@app.post("/api/history/clear", dependencies=[Depends(require_admin)])
-async def clear_history():
-    paths = get_database_paths()
+@app.post("/api/history/clear")
+async def clear_history(who: Principal = Depends(require_user)):
+    """Viewers clear only their own runs; the admin clears everything (CHANGES.md section 31)."""
     # Wait for a running pipeline to finish so a run is never cut in half.
     async with PIPELINE_RUN_LOCK:
+        if not who.is_admin:
+            try:
+                ownership.clear_owner(who.owner)
+            except Exception as err:
+                logger.exception("Error clearing a user's history", error=str(err))
+                raise HTTPException(status_code=500, detail="Could not clear your history.")
+            return {"status": "success", "message": "Your history was cleared."}
         try:
             # Clear state database tables
             with get_db_connection("state_db") as conn:
@@ -637,6 +754,7 @@ async def clear_history():
                 conn.execute("DELETE FROM audit_logs")
                 conn.execute("DELETE FROM pipeline_configs")
                 conn.execute("DELETE FROM quarantined_records")
+                conn.execute("DELETE FROM run_owners")
                 conn.commit()
             # Clear operational database tables
             with get_db_connection("operational_db") as conn:
@@ -649,15 +767,14 @@ async def clear_history():
 
 
 
-# Mount static files at the root route only when running locally (not on Vercel)
-if not os.environ.get("VERCEL"):
-    base_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-    # New React dashboard (frontend/, built with `npm run build`) if it has been built;
-    # otherwise the original HTML dashboard in public/.
-    react_dist = os.path.join(base_dir, "frontend", "dist")
-    public_dir = os.path.join(base_dir, "public")
-    static_dir = react_dist if os.path.exists(os.path.join(react_dist, "index.html")) else public_dir
-    if os.environ.get("EHA_UI", "").lower() == "legacy":  # force the old dashboard (used by its browser tests)
-        static_dir = public_dir
-    if os.path.exists(static_dir):
-        app.mount("/", StaticFiles(directory=static_dir, html=True), name="public")
+# The dashboard (CHANGES.md section 30): the React app (frontend/, built with `npm run build`),
+# served from the same origin as the API, locally and on Vercel. On Vercel the build runs during
+# deploy (vercel.json "buildCommand") and Vercel copies these files to its CDN.
+_REACT_DIST = os.path.join(REPO_ROOT, "frontend", "dist")
+if os.path.exists(os.path.join(_REACT_DIST, "index.html")):
+    app.mount("/", StaticFiles(directory=_REACT_DIST, html=True), name="dashboard")
+else:
+    @app.get("/", include_in_schema=False)
+    async def dashboard_not_built():
+        return JSONResponse({"detail": "The dashboard is not built yet: cd frontend && npm install && npm run build"},
+                            status_code=503)
