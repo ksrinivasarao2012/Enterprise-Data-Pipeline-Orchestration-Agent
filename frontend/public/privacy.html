@@ -1,0 +1,69 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Privacy · Self-Healing Data Pipeline</title>
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+  <style>
+    :root { --bg: #f4f1ea; --fg: #1c1b19; --muted: #5d5a53; --line: #dcd7cc; --card: #fbfaf7; }
+    @media (prefers-color-scheme: dark) {
+      :root { --bg: #151514; --fg: #ecebe6; --muted: #a3a09a; --line: #34332f; --card: #1d1d1b; }
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; background: var(--bg); color: var(--fg); font: 16px/1.6 system-ui, -apple-system, "Segoe UI", sans-serif; }
+    main { max-width: 720px; margin: 0 auto; padding: 40px 16px 64px; }
+    a { color: inherit; }
+    .back { font-size: 14px; color: var(--muted); }
+    h1 { font-family: Georgia, "Times New Roman", serif; font-weight: 400; font-size: 40px; line-height: 1.1; margin: 16px 0 4px; }
+    h2 { font-size: 18px; margin: 32px 0 8px; }
+    .date { color: var(--muted); font-size: 14px; margin: 0 0 24px; }
+    .card { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 16px 20px; }
+    ul { padding-left: 20px; margin: 8px 0; }
+    li { margin: 4px 0; }
+    p { margin: 8px 0; }
+  </style>
+</head>
+<body>
+  <main>
+    <a class="back" href="/">← Back to the app</a>
+    <h1>Privacy</h1>
+    <p class="date">Self-Healing Data Pipeline Platform · last updated 16 October 2026</p>
+
+    <div class="card">
+      <p><strong>In short:</strong> this is a portfolio demo. When you sign in with Google, it keeps only your
+      Google account id, email address and name, to know who you are and to keep your test runs separate from
+      everyone else's. Nothing is sold, shared for advertising or used to track you.</p>
+    </div>
+
+    <h2>What is stored</h2>
+    <ul>
+      <li><strong>Your Google account:</strong> account id, email address, name, and when you first and last signed in.
+        No password is ever seen or stored: Google handles the sign-in.</li>
+      <li><strong>Your test runs:</strong> the incidents, audit steps, held-back rows and escalations created when you run
+        a test or upload a file. Only you (and the site owner, as admin) can see them.</li>
+      <li><strong>One login cookie</strong> that keeps you signed in for 7 days. There are no tracking or advertising cookies.</li>
+      <li>Short-lived counters that limit how many runs you can start per minute.</li>
+    </ul>
+
+    <h2>What is shared</h2>
+    <ul>
+      <li><strong>Google Gemini:</strong> if a test file is broken, its error text (and, for broken JSON, the file's
+        contents) is sent to Google Gemini so the agents can analyse or repair it. Do not upload real personal data.</li>
+      <li><strong>Hosting:</strong> the app runs on Vercel and stores data in a Postgres database (Neon).</li>
+      <li>Nothing else is shared with anyone.</li>
+    </ul>
+
+    <h2>Deleting your data</h2>
+    <ul>
+      <li>Your test runs: use <strong>Clear my history</strong> on the Incidents page. They are deleted at once.</li>
+      <li>Your account record (id, email, name): email the owner at
+        <a href="mailto:raokommanasrinivasa@gmail.com">raokommanasrinivasa@gmail.com</a> and it will be removed.</li>
+      <li>Signing out removes the login cookie from your browser.</li>
+    </ul>
+
+    <h2>Contact</h2>
+    <p>Questions about this page: <a href="mailto:raokommanasrinivasa@gmail.com">raokommanasrinivasa@gmail.com</a>.</p>
+  </main>
+</body>
+</html>

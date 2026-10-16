@@ -218,10 +218,13 @@ export function LoginCard({ config, onLoggedIn, theme, onToggleTheme }: Props) {
       </main>
 
       <footer className="border-t border-line">
-        <div className="mx-auto flex max-w-6xl flex-col gap-2 px-4 py-5 text-[13px] text-muted sm:flex-row sm:items-center sm:px-8">
+        <div className="mx-auto flex max-w-6xl flex-col gap-x-5 gap-y-2 px-4 py-5 text-[13px] text-muted sm:flex-row sm:items-center sm:px-8">
           <span className="flex-1">Built with FastAPI, LangGraph, Google Gemini, sqlglot</span>
           <a href={API_DOCS_URL} target="_blank" rel="noreferrer noopener" className="underline-offset-4 hover:text-fg hover:underline">
             API docs (FastAPI)
+          </a>
+          <a href="/privacy.html" className="underline-offset-4 hover:text-fg hover:underline">
+            Privacy
           </a>
         </div>
       </footer>

@@ -520,6 +520,17 @@ Try all now uses about **5** Gemini calls instead of about 11.
 
 ---
 
+## 33. Privacy page
+
+**Purpose:** Google only lets a sign-in app be published (so anyone can sign in) once it has a public privacy policy link.
+
+- New page at `/privacy.html`: what is stored (Google id, email, name, your test runs, one login cookie), what is shared (Gemini for broken files, Vercel and Postgres for hosting), and how to delete it.
+- Linked from the footer of the sign-in page and the app. It needs no sign-in.
+
+**Files:** `frontend/public/privacy.html` (new), `frontend/src/App.tsx`, `frontend/src/components/LoginCard.tsx`, `test/test_vercel_config.py`
+
+---
+
 ## Results before and after
 
 Same 13 test files, same fake Gemini:

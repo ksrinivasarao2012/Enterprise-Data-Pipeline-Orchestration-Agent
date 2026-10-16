@@ -46,3 +46,18 @@ def test_the_api_mounts_the_react_build_at_the_root():
     from src.api.main import app
     mounts = [r for r in app.routes if getattr(r, "name", "") == "dashboard"]
     assert mounts and mounts[0].path == "" and mounts[0].app.directory.endswith(os.path.join("frontend", "dist"))
+
+
+def test_privacy_page_exists_and_is_linked():
+    # Google needs a public privacy policy link before the sign-in app can be published (CHANGES.md section 33).
+    page = open(os.path.join(ROOT, "frontend", "public", "privacy.html"), encoding="utf-8").read()
+    assert "email address and name" in page and "Clear my history" in page and "Google Gemini" in page
+    for f in ("App.tsx", os.path.join("components", "LoginCard.tsx")):
+        assert 'href="/privacy.html"' in open(os.path.join(ROOT, "frontend", "src", f), encoding="utf-8").read(), f
+
+
+@pytest.mark.skipif(not os.path.exists(os.path.join(ROOT, "frontend", "dist", "privacy.html")),
+                    reason="React app not built (frontend/dist missing)")
+def test_privacy_page_is_public_even_with_sign_in_on(client, google_on):
+    r = client.get("/privacy.html")
+    assert r.status_code == 200 and "Privacy" in r.text
