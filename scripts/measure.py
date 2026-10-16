@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 """
-Measure all 14 presets against a REAL server with REAL Gemini, and write the results table into
+Measure all 15 presets against a REAL server with REAL Gemini, and write the results table into
 README.md by itself (CHANGES.md section 28). Nothing is typed by hand, so the numbers cannot
 quietly go out of date: re-run this script and the table is replaced, with the date and model name.
 
@@ -11,7 +11,7 @@ For every preset, in every run, it records:
     time           wall time of the API request (this includes the healing itself)
 and compares each of them with what the design says should happen (EXPECTED below, the same
 table as test/test_agent_paths.py). It repeats the whole suite (default 3 times), because Gemini
-can answer differently each time, and the README says e.g. "13/14 presets as expected in 3 of
+can answer differently each time, and the README says e.g. "14/15 presets as expected in 3 of
 3 runs", or names the preset that changed.
 
 Usage (from the project folder, with GOOGLE_API_KEY in .env or the environment):
@@ -90,6 +90,7 @@ EXPECTED = [
     Preset("a", "case_drift_multi.json", "healed", START + [R, A, A, R, A, A], 0, 0),   # the retry loop
     Preset("a", "case_invalid_root.json", "healed", START + [R, A, A], 0, 0),
     Preset("a", "case_malformed_syntax.json", "healed", START + [RCA, R, A, A, A], 2, 1),
+    Preset("a", "case_broken_and_wrapped.json", "healed", START + [RCA, R, A, A, A, AI, AI, A, A], 3, 0),  # RCA -> repair -> AI fix
     Preset("a", "case_wrapped_records.json", "healed", START + [R, A, A, AI, AI, A, A], 1, 0),  # rule fails -> AI fix
     Preset("a", "case_invalid_email.json", "quarantined", None, 0, 1),
     Preset("a", "case_duplicate_ids.json", "quarantined", None, 0, 1),
@@ -227,7 +228,7 @@ def replace_block(readme_text: str, block: str) -> str:
 
 def run_suite(base_url: str, key: Optional[str], gemini_count: Optional[Callable[[], int]],
               delay: float = 0.0, log: Callable[[str], None] = print) -> list:
-    """Runs the 14 presets once, in order. Returns one observation per preset."""
+    """Runs the 15 presets once, in order. Returns one observation per preset."""
     import requests
 
     s = requests.Session()
@@ -396,7 +397,7 @@ def model_name() -> str:
 
 
 def main(argv=None) -> int:
-    ap = argparse.ArgumentParser(description="Measure all 14 presets against a real server and update README.md.")
+    ap = argparse.ArgumentParser(description="Measure all 15 presets against a real server and update README.md.")
     ap.add_argument("--runs", type=int, default=3, help="how many times to repeat the whole suite (default 3)")
     ap.add_argument("--delay", type=float, default=3.0, help="seconds to wait between presets (default 3, kind to the Gemini rate limit)")
     ap.add_argument("--url", help="measure an already running server instead of starting one (Gemini calls show as n/a)")

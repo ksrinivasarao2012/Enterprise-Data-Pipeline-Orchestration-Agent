@@ -2,11 +2,11 @@
 """
 Record the Demo tab (CHANGES.md section 32).
 
-Runs all 14 presets once on a throw-away local server with REAL Gemini, then saves what the
+Runs all 15 presets once on a throw-away local server with REAL Gemini, then saves what the
 dashboard would show (incidents, audit trails, quarantined rows, escalations, counters) to
 demo/snapshot.json. Signed-in users see it, read-only, in the Demo tab.
 
-    python scripts/make_demo_snapshot.py            # about 6 Gemini calls
+    python scripts/make_demo_snapshot.py            # about 9 Gemini calls
 
 The recording is frozen: it only changes when you run this script again. If any preset does
 not behave as designed (for example a Gemini call failed because of the quota), nothing is
@@ -61,7 +61,7 @@ def build_snapshot(observations: list, data: dict, model: str) -> dict:
 
 
 def main(argv=None) -> int:
-    ap = argparse.ArgumentParser(description="Record the 14 presets for the Demo tab.")
+    ap = argparse.ArgumentParser(description="Record the 15 presets for the Demo tab.")
     ap.add_argument("--out", default=str(OUT), help="where to write the snapshot")
     ap.add_argument("--delay", type=float, default=3.0, help="seconds between presets (kind to the Gemini rate limit)")
     ap.add_argument("--force", action="store_true", help="write the snapshot even if a preset did not behave as designed")

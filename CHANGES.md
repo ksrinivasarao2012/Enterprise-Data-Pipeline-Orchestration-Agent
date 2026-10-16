@@ -539,7 +539,8 @@ Try all now uses about **5** Gemini calls instead of about 11.
 - **What Gemini may do:** propose up to 5 steps from a fixed list: `unwrap`, `flatten_root`, `unnest`, `rename_field`, `lowercase_keys`, `trim_values`. No code, no SQL, no value edits.
 - **Dry run on a copy:** the steps must pass every check: same number of records, no value added, changed or removed, the pipeline's schema and row checks pass, at most a quarter of rows held back.
 - **Then:** passed → the fixed file is used for a real run and Verify checks it as usual. Failed → nothing is changed, the incident shows **Blocked by guard** and goes to a person with Gemini's proposal and the reason.
-- **New preset:** "Records wrapped in an object" (`case_wrapped_records.json`). The flatten rule fails, the AI fix unwraps the list, 10 rows saved, 1 Gemini call.
+- **New presets:** "Records wrapped in an object" (`case_wrapped_records.json`): the flatten rule fails, the AI fix unwraps the list, 10 rows saved, 1 Gemini call. "Broken JSON + wrapped records" (`case_broken_and_wrapped.json`): RCA, Gemini adds the missing `}`, Verify fails (still wrapped), the AI fix unwraps it, 10 rows saved, 3 Gemini calls. The "rejected" path has no preset, because real Gemini would have to propose a bad fix on purpose; it is proven by `test_ai_fix.py` with a fake Gemini.
+- The RCA → Recovery arrow is labelled "Gemini repair".
 - **Flow diagram:** now drawn as the real branching graph (Recovery, RCA, AI fix, Verify, Healed, Escalate). Only the arrows this incident took light up. The incident panel's step chips follow the same path.
 - Small fix: a failed verification run no longer writes junk rows to the quarantine table when no row was valid.
 

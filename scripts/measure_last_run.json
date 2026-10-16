@@ -9,7 +9,7 @@
       {
         "case": "case_healthy.json",
         "pipe": "a",
-        "seconds": 0.355,
+        "seconds": 0.175,
         "result": "success",
         "held": 0,
         "components": null,
@@ -25,7 +25,7 @@
       {
         "case": "case_drift_country.json",
         "pipe": "a",
-        "seconds": 3.248,
+        "seconds": 1.671,
         "result": "healed",
         "held": 0,
         "components": [
@@ -38,7 +38,7 @@
           "ACTUATOR"
         ],
         "gemini_calls": 0,
-        "incident_id": "inc_bd7e30f7",
+        "incident_id": "inc_b62c31ce",
         "blocked_by_guard": false,
         "response": {
           "status": "success",
@@ -50,7 +50,7 @@
       {
         "case": "case_drift_email.json",
         "pipe": "a",
-        "seconds": 1.322,
+        "seconds": 0.624,
         "result": "healed",
         "held": 0,
         "components": [
@@ -63,7 +63,7 @@
           "ACTUATOR"
         ],
         "gemini_calls": 0,
-        "incident_id": "inc_ae97cdd6",
+        "incident_id": "inc_4ee6a3e5",
         "blocked_by_guard": false,
         "response": {
           "status": "success",
@@ -75,7 +75,7 @@
       {
         "case": "case_drift_id.json",
         "pipe": "a",
-        "seconds": 1.251,
+        "seconds": 0.648,
         "result": "healed",
         "held": 0,
         "components": [
@@ -88,7 +88,7 @@
           "ACTUATOR"
         ],
         "gemini_calls": 0,
-        "incident_id": "inc_36d22aad",
+        "incident_id": "inc_1a15e121",
         "blocked_by_guard": false,
         "response": {
           "status": "success",
@@ -100,7 +100,7 @@
       {
         "case": "case_drift_multi.json",
         "pipe": "a",
-        "seconds": 1.765,
+        "seconds": 1.316,
         "result": "healed",
         "held": 0,
         "components": [
@@ -116,7 +116,7 @@
           "ACTUATOR"
         ],
         "gemini_calls": 0,
-        "incident_id": "inc_9c1b308d",
+        "incident_id": "inc_e3cb4bfc",
         "blocked_by_guard": false,
         "response": {
           "status": "success",
@@ -128,7 +128,7 @@
       {
         "case": "case_invalid_root.json",
         "pipe": "a",
-        "seconds": 1.38,
+        "seconds": 0.559,
         "result": "healed",
         "held": 0,
         "components": [
@@ -141,7 +141,7 @@
           "ACTUATOR"
         ],
         "gemini_calls": 0,
-        "incident_id": "inc_0a2342c5",
+        "incident_id": "inc_87cc35db",
         "blocked_by_guard": false,
         "response": {
           "status": "success",
@@ -153,7 +153,7 @@
       {
         "case": "case_malformed_syntax.json",
         "pipe": "a",
-        "seconds": 14.746,
+        "seconds": 8.95,
         "result": "healed",
         "held": 1,
         "components": [
@@ -168,7 +168,38 @@
           "ACTUATOR"
         ],
         "gemini_calls": 2,
-        "incident_id": "inc_2e27a20f",
+        "incident_id": "inc_0330a6bd",
+        "blocked_by_guard": false,
+        "response": {
+          "status": "success",
+          "rows_ingested": "Auto-healed",
+          "healed": true
+        },
+        "why": []
+      },
+      {
+        "case": "case_broken_and_wrapped.json",
+        "pipe": "a",
+        "seconds": 24.476,
+        "result": "healed",
+        "held": 0,
+        "components": [
+          "TELEMETRY_RECEIVER",
+          "MONITOR_AGENT",
+          "CLASSIFIER_AGENT",
+          "CLASSIFIER_AGENT",
+          "RCA_AGENT",
+          "RECOVERY_AGENT",
+          "ACTUATOR",
+          "ACTUATOR",
+          "ACTUATOR",
+          "AI_FIX_AGENT",
+          "AI_FIX_AGENT",
+          "ACTUATOR",
+          "ACTUATOR"
+        ],
+        "gemini_calls": 3,
+        "incident_id": "inc_69139077",
         "blocked_by_guard": false,
         "response": {
           "status": "success",
@@ -180,7 +211,7 @@
       {
         "case": "case_wrapped_records.json",
         "pipe": "a",
-        "seconds": 6.58,
+        "seconds": 11.794,
         "result": "healed",
         "held": 0,
         "components": [
@@ -197,7 +228,7 @@
           "ACTUATOR"
         ],
         "gemini_calls": 1,
-        "incident_id": "inc_3365a05a",
+        "incident_id": "inc_1939ddc1",
         "blocked_by_guard": false,
         "response": {
           "status": "success",
@@ -209,7 +240,7 @@
       {
         "case": "case_invalid_email.json",
         "pipe": "a",
-        "seconds": 0.259,
+        "seconds": 0.266,
         "result": "quarantined",
         "held": 1,
         "components": null,
@@ -227,7 +258,7 @@
       {
         "case": "case_duplicate_ids.json",
         "pipe": "a",
-        "seconds": 0.283,
+        "seconds": 0.219,
         "result": "quarantined",
         "held": 1,
         "components": null,
@@ -245,7 +276,7 @@
       {
         "case": "healthy.db",
         "pipe": "b",
-        "seconds": 0.162,
+        "seconds": 0.159,
         "result": "success",
         "held": 0,
         "components": null,
@@ -261,7 +292,7 @@
       {
         "case": "sql_error.db",
         "pipe": "b",
-        "seconds": 9.415,
+        "seconds": 22.025,
         "result": "escalated",
         "held": 0,
         "components": [
@@ -274,7 +305,7 @@
           "ESCALATION"
         ],
         "gemini_calls": 2,
-        "incident_id": "inc_97c21f97",
+        "incident_id": "inc_6d34f41a",
         "blocked_by_guard": true,
         "response": {
           "status": "failure",
@@ -285,7 +316,7 @@
       {
         "case": "referential_integrity.db",
         "pipe": "b",
-        "seconds": 0.481,
+        "seconds": 0.421,
         "result": "quarantined (all rows)",
         "held": 1,
         "components": [
@@ -298,7 +329,7 @@
           "ACTUATOR"
         ],
         "gemini_calls": 0,
-        "incident_id": "inc_d5e3095a",
+        "incident_id": "inc_939ceedd",
         "blocked_by_guard": false,
         "response": {
           "status": "success",
@@ -311,7 +342,7 @@
       {
         "case": "missing_table.db",
         "pipe": "b",
-        "seconds": 3.12,
+        "seconds": 4.211,
         "result": "escalated",
         "held": 0,
         "components": [
@@ -323,7 +354,7 @@
           "ESCALATION"
         ],
         "gemini_calls": 1,
-        "incident_id": "inc_8c417190",
+        "incident_id": "inc_56d706d3",
         "blocked_by_guard": false,
         "response": {
           "status": "failure",

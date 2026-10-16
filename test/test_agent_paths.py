@@ -1,7 +1,7 @@
 """
 The branching agent graph (CHANGES.md section 23): one test per preset.
 
-For each of the 14 presets this checks the three things agreed before building:
+For each of the 15 presets this checks the three things agreed before building:
     1. the exact path through the graph (which agents ran, in order, including the loop),
     2. how many times Gemini was called,
     3. the final result.
@@ -25,6 +25,10 @@ T, M, C, RCA, R, A, E = ("TELEMETRY_RECEIVER", "MONITOR_AGENT", "CLASSIFIER_AGEN
                          "RECOVERY_AGENT", "ACTUATOR", "ESCALATION")
 AI = "AI_FIX_AGENT"
 UNWRAP = '{"steps": [{"op": "unwrap", "key": "customers"}], "reason": "the records are under customers"}'
+# Broken JSON whose records are also wrapped in {"customers": [...]}: Gemini adds only the missing "}".
+BROKEN_WRAPPED = open(os.path.join(ROOT, "test_data", "pipeline_A", "case_broken_and_wrapped.json")).read()
+REPAIR_THEN_UNWRAP = {"JSON syntax repair agent": BROKEN_WRAPPED.replace('"country": "Japan",\n', '"country": "Japan"},\n'),
+                      "repair the SHAPE": UNWRAP}
 START = [T, M, C, C]  # the Classifier writes two lines: severity, then the route it chose
 
 # (pipeline, preset, Gemini's reply, expected path, Gemini calls, expected result)
@@ -36,6 +40,7 @@ CASES = [
     ("a", "case_drift_multi.json", "", START + [R, A, A, R, A, A], 0, "healed"),  # the loop
     ("a", "case_invalid_root.json", "", START + [R, A, A], 0, "healed"),
     ("a", "case_malformed_syntax.json", BRACKET_ONLY, START + [RCA, R, A, A, A], 2, "healed_with_quarantine"),
+    ("a", "case_broken_and_wrapped.json", REPAIR_THEN_UNWRAP, START + [RCA, R, A, A, A, AI, AI, A, A], 3, "healed"),
     ("a", "case_wrapped_records.json", UNWRAP, START + [R, A, A, AI, AI, A, A], 1, "healed"),  # rule fails -> AI fix
     ("a", "case_invalid_email.json", "", None, 0, "quarantined"),
     ("a", "case_duplicate_ids.json", "", None, 0, "quarantined"),

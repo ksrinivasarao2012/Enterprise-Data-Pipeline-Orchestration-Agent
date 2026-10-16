@@ -313,11 +313,11 @@ def test_download_report_as_pdf_and_json(page):
 
 
 def test_try_all_runs_every_preset_as_a_viewer(page):
-    # 14 presets is more than the viewer limit (10 per minute), but Try all counts as one run.
+    # 15 presets is more than the viewer limit (10 per minute), but Try all counts as one run.
     _login(page, VIEWER)
-    page.get_by_role("button", name="Try all 14 presets").click()
+    page.get_by_role("button", name="Try all 15 presets").click()
     page.get_by_role("button", name="Stop after this one").wait_for(timeout=5000)
-    page.get_by_text("Try all finished: 14 runs").wait_for(timeout=120000)
+    page.get_by_text("Try all finished: 15 runs").wait_for(timeout=120000)
     box = page.inner_text("#try-all-results")
     assert "Too many runs" not in box, box
     for label in ["Healthy file", "Renamed column: country", "Missing column", "Missing table"]:
@@ -391,7 +391,7 @@ def test_try_all_on_a_phone_keeps_the_results_list_in_view(server):
         pg = browser.new_page(viewport={"width": 390, "height": 844})
         pg.goto(server)
         _login(pg, ADMIN_EMAIL)
-        pg.get_by_role("button", name="Try all 14 presets").click()
+        pg.get_by_role("button", name="Try all 15 presets").click()
         in_view = "(() => { const r = document.getElementById('try-all-results')?.getBoundingClientRect();" \
                   " return !!r && r.top < innerHeight && r.bottom > 0; })()"
         for _ in range(6):  # sample while it runs
@@ -484,7 +484,7 @@ def _load_script(name):
 
 
 def test_demo_tab_shows_the_recording_read_only(page, server):
-    """The recording is made like scripts/make_demo_snapshot.py makes it (14 presets, then read
+    """The recording is made like scripts/make_demo_snapshot.py makes it (15 presets, then read
     back through the API), here as one Google account so other tests' runs don't get in."""
     import requests
     from datetime import datetime, timezone
@@ -494,8 +494,8 @@ def test_demo_tab_shows_the_recording_read_only(page, server):
         for case in sorted(os.listdir(os.path.join(ROOT, "test_data", folder))):
             requests.post(f"{server}/api/pipelines/{pipe}/execute", headers=rec, data={"test_case": case}, timeout=60)
     data = snapmod.collect(server, rec)
-    meta = {"recorded_at": datetime.now(timezone.utc).isoformat(), "model": "test-model-xyz", "presets": 14,
-            "as_expected": 14, "gemini_calls": 5}
+    meta = {"recorded_at": datetime.now(timezone.utc).isoformat(), "model": "test-model-xyz", "presets": 15,
+            "as_expected": 15, "gemini_calls": 5}
     with open(DEMO_FILE, "w", encoding="utf-8") as f:
         json.dump({"meta": meta, **data}, f)
     n = len(data["incidents"])
@@ -504,10 +504,10 @@ def test_demo_tab_shows_the_recording_read_only(page, server):
     _login(page, "visitor@example.com")              # a brand-new viewer with no runs of their own
     page.get_by_role("link", name="Demo").click()
     page.get_by_text("Read-only demo").wait_for(timeout=10000)
-    assert "test-model-xyz" in page.inner_text("main") and "14/14 test cases as designed" in page.inner_text("main")
+    assert "test-model-xyz" in page.inner_text("main") and "15/15 test cases as designed" in page.inner_text("main")
     page.locator("#timeline-title").get_by_text(f"{min(20, n)} of {n}").wait_for(timeout=10000)
     # nothing can be run or cleared here
-    for name in ("Run pipeline", "Clear my history", "Clear history", "Try all 14 presets"):
+    for name in ("Run pipeline", "Clear my history", "Clear history", "Try all 15 presets"):
         assert page.get_by_role("button", name=name).count() == 0, name
     # filters work on the recording, in the browser
     page.get_by_role("button", name="Escalated", exact=True).click()

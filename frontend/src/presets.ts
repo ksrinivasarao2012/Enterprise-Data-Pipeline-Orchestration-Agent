@@ -19,6 +19,7 @@ export const PIPELINES: Record<PipelineId, { tab: string; accept: string; ext: s
       { label: 'Renamed column: id', testCase: 'case_drift_id.json', hint: 'A rule maps the new column name and heals the run, no Gemini needed.' },
       { label: 'Two renamed columns', testCase: 'case_drift_multi.json', hint: 'Verify finds the second rename and sends it back to Recovery (a loop), then the load is verified.' },
       { label: 'Wrong JSON shape', testCase: 'case_invalid_root.json', hint: 'The file is an object instead of a list; agents flatten it and heal the run.' },
+      { label: 'Broken JSON + wrapped records', testCase: 'case_broken_and_wrapped.json', hint: 'RCA, then Gemini adds the missing bracket. The records are still wrapped, so Verify fails and one AI fix (checked by a dry run) unwraps them.' },
       { label: 'Records wrapped in an object', testCase: 'case_wrapped_records.json', hint: 'The flatten rule fails, so Gemini proposes one fix; a dry run on a copy checks it before it is used.' },
       { label: 'Broken JSON syntax', testCase: 'case_malformed_syntax.json', hint: 'A bracket is missing. Gemini adds only the bracket; the row that also lacks a country is quarantined, the other 9 load.' },
       { label: 'Bad email in one row', testCase: 'case_invalid_email.json', hint: 'The bad row is quarantined, the rest load.' },

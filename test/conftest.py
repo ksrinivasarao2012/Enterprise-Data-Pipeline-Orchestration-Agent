@@ -31,11 +31,16 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 
 class FakeLLM(RunnableLambda):
-    """Stands in for ChatGoogleGenerativeAI. Every call returns `reply`."""
+    """Stands in for ChatGoogleGenerativeAI. Every call returns `reply`. If `reply` is a dict
+    {"words in the prompt": "reply", ...}, the first key found in the prompt picks the reply
+    (anything else gets "UNRESOLVED"), for runs that call Gemini for different jobs."""
 
-    def __init__(self, reply: str, calls: list):
+    def __init__(self, reply, calls: list):
         def _answer(_prompt):
             calls.append(_prompt)
+            if isinstance(reply, dict):
+                text = str(_prompt)
+                return AIMessage(content=next((v for k, v in reply.items() if k in text), "UNRESOLVED"))
             return AIMessage(content=reply)
         super().__init__(_answer)
         self._calls = calls
@@ -50,7 +55,7 @@ class FakeLLM(RunnableLambda):
 @pytest.fixture
 def fake_llm(monkeypatch):
     """Returns a setter: fake_llm("reply text") -> list that records every LLM call."""
-    def _install(reply: str):
+    def _install(reply):
         calls = []
         factory = lambda *a, **k: FakeLLM(reply, calls)
         monkeypatch.setattr(rca_mod, "ChatGoogleGenerativeAI", factory)

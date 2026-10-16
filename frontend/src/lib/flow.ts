@@ -33,7 +33,7 @@ export const FLOW_EDGES: { from: string; to: string; label?: string }[] = [
   { from: 'MONITOR_AGENT', to: 'CLASSIFIER_AGENT' },
   { from: 'CLASSIFIER_AGENT', to: 'RECOVERY_AGENT', label: 'a rule knows' },
   { from: 'CLASSIFIER_AGENT', to: 'RCA_AGENT', label: 'new error' },
-  { from: 'RCA_AGENT', to: 'RECOVERY_AGENT' },
+  { from: 'RCA_AGENT', to: 'RECOVERY_AGENT', label: 'Gemini repair' },
   { from: 'RCA_AGENT', to: 'AI_FIX_AGENT', label: 'no rule fits' },
   { from: 'RCA_AGENT', to: 'ESCALATION', label: 'nothing to fix' },
   { from: 'RECOVERY_AGENT', to: 'ACTUATOR' },

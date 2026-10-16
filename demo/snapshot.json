@@ -1,13 +1,13 @@
 {
  "meta": {
-  "recorded_at": "2026-10-16T07:11:35+00:00",
+  "recorded_at": "2026-10-16T08:09:03+00:00",
   "model": "gemini-3.5-flash-lite",
-  "presets": 14,
-  "as_expected": 14,
-  "gemini_calls": 6
+  "presets": 15,
+  "as_expected": 15,
+  "gemini_calls": 9
  },
  "metrics": {
-  "resolved": 8,
+  "resolved": 9,
   "investigating": 0,
   "escalated": 2,
   "runs_without_incident": 2,
@@ -16,8 +16,8 @@
  },
  "incidents": [
   {
-   "incident_id": "inc_89fb632a",
-   "run_id": "run_b_51f865",
+   "incident_id": "inc_be3d44f8",
+   "run_id": "run_b_e3cd78",
    "pipeline_id": "PIPELINE_B",
    "severity": "P0",
    "category": "INFRASTRUCTURE_FAILURE",
@@ -25,19 +25,19 @@
    "error_class": "sqlite3.OperationalError",
    "error_message": "Operational source table 'device_telemetry' does not exist on disk.",
    "stack_trace": "Traceback (most recent call last):\n  File \"C:\\D wala\\DRDO\\enterprise_healing_agent\\src\\pipeline\\db_pipeline.py\", line 68, in execute\n    raise sqlite3.OperationalError(f\"Operational source table '{check_table}' does not exist on disk.\")\nsqlite3.OperationalError: Operational source table 'device_telemetry' does not exist on disk.\n",
-   "root_cause": "The data pipeline execution failed because the required SQLite source table 'device_telemetry' does not exist in the target database file. This typically occurs when an ingestion job attempts to read from a table before it has been created, or when connecting to an incorrect, uninitialized database path.",
+   "root_cause": "The pipeline execution failed because the required source table 'device_telemetry' does not exist in the underlying SQLite database file. This indicates either that the upstream data ingestion step failed to create and populate the table prior to execution, or that the pipeline is pointing to an incorrect database file path where the schema has not been initialized.",
    "recovery_action": "Action: ESCALATE | Rationale: No safe automatic fix exists for this kind of failure.",
    "telemetry_metadata": {
-    "source_path": "C:\\Users\\SRINIV~1\\AppData\\Local\\Temp\\tmpvlpk3266.db",
+    "source_path": "C:\\Users\\SRINIV~1\\AppData\\Local\\Temp\\tmpw78svdzv.db",
     "original_filename": "missing_table.db"
    },
    "blocked_by_guard": false,
-   "created_at": "2026-10-16T07:11:27.858932+00:00",
+   "created_at": "2026-10-16T08:08:53.752272+00:00",
    "resolved_at": null
   },
   {
-   "incident_id": "inc_4346bdc2",
-   "run_id": "run_b_173b39",
+   "incident_id": "inc_f3af10bb",
+   "run_id": "run_b_c2399e",
    "pipeline_id": "PIPELINE_B",
    "severity": "P0",
    "category": "DATA_QUALITY",
@@ -48,16 +48,16 @@
    "root_cause": null,
    "recovery_action": "Action: QUARANTINE | Rationale: Referential Integrity violation detected. Isolating corrupted records.",
    "telemetry_metadata": {
-    "source_path": "C:\\Users\\SRINIV~1\\AppData\\Local\\Temp\\tmpdu44r0fx.db",
+    "source_path": "C:\\Users\\SRINIV~1\\AppData\\Local\\Temp\\tmp52q1um2m.db",
     "original_filename": "referential_integrity.db"
    },
    "blocked_by_guard": false,
-   "created_at": "2026-10-16T07:11:24.326355+00:00",
-   "resolved_at": "2026-10-16T07:11:24.615047+00:00"
+   "created_at": "2026-10-16T08:08:50.275832+00:00",
+   "resolved_at": "2026-10-16T08:08:50.525803+00:00"
   },
   {
-   "incident_id": "inc_030a9118",
-   "run_id": "run_b_10ed75",
+   "incident_id": "inc_ab3f9e08",
+   "run_id": "run_b_50882c",
    "pipeline_id": "PIPELINE_B",
    "severity": "P1",
    "category": "SCHEMA_DRIFT",
@@ -65,19 +65,19 @@
    "error_class": "sqlite3.OperationalError",
    "error_message": "Database Query Parse Error: no such column: status_code. Available columns in device_telemetry: ['log_id', 'device_id', 'timestamp', 'response_time']. Query: \n                SELECT \n                    device_id, \n                    COUNT(log_id) as total_events,\n                    SUM(CASE WHEN status_code >= 400 THEN 1 ELSE 0 END) * 1.0 / COUNT(log_id) as error_rate,\n                    AVG(response_time) as avg_response_time\n                FROM device_telemetry\n                GROUP BY device_id\n            ",
    "stack_trace": "Traceback (most recent call last):\n  File \"C:\\D wala\\DRDO\\enterprise_healing_agent\\src\\pipeline\\db_pipeline.py\", line 106, in execute\n    cursor.execute(telemetry_query)\nsqlite3.OperationalError: no such column: status_code\n\nDuring handling of the above exception, another exception occurred:\n\nTraceback (most recent call last):\n  File \"C:\\D wala\\DRDO\\enterprise_healing_agent\\src\\pipeline\\db_pipeline.py\", line 122, in execute\n    raise sqlite3.OperationalError(f\"Database Query Parse Error: {str(sq_err)}.{schema_info} Query: {telemetry_query}\")\nsqlite3.OperationalError: Database Query Parse Error: no such column: status_code. Available columns in device_telemetry: ['log_id', 'device_id', 'timestamp', 'response_time']. Query: \n                SELECT \n                    device_id, \n                    COUNT(log_id) as total_events,\n                    SUM(CASE WHEN status_code >= 400 THEN 1 ELSE 0 END) * 1.0 / COUNT(log_id) as error_rate,\n                    AVG(response_time) as avg_response_time\n                FROM device_telemetry\n                GROUP BY device_id\n            \n",
-   "root_cause": "The pipeline execution failed due to an SQL operational error raised by SQLite. The query attempts to reference a column named 'status_code' inside a conditional aggregation (CASE WHEN status_code >= 400), but inspection of the underlying table schema reveals that 'status_code' does not exist in the 'device_telemetry' table. The available columns are strictly limited to ['log_id', 'device_id', 'timestamp', 'response_time']. This discrepancy between the expected schema in the query and the actual physical table schema leads to a parse error.",
+   "root_cause": "The pipeline execution failed due to an SQL operational error (sqlite3.OperationalError) caused by referencing a non-existent column 'status_code' inside a CASE statement within the aggregation query. Inspecting the schema of the 'device_telemetry' table reveals that the available columns are only ['log_id', 'device_id', 'timestamp', 'response_time']. The column 'status_code' was either dropped, renamed, or omitted during table creation, yet the pipeline query assumes its presence to calculate the error rate.",
    "recovery_action": "Action: ESCALATE | Rationale: LLM reported the SQL error as UNRESOLVABLE (required column has no equivalent). Escalating instead of inventing values.",
    "telemetry_metadata": {
-    "source_path": "C:\\Users\\SRINIV~1\\AppData\\Local\\Temp\\tmp_6nre_ga.db",
+    "source_path": "C:\\Users\\SRINIV~1\\AppData\\Local\\Temp\\tmpsg3zasp4.db",
     "original_filename": "sql_error.db"
    },
    "blocked_by_guard": true,
-   "created_at": "2026-10-16T07:11:13.496554+00:00",
+   "created_at": "2026-10-16T08:08:30.234798+00:00",
    "resolved_at": null
   },
   {
-   "incident_id": "inc_94ef2a8c",
-   "run_id": "run_a_4deb0a",
+   "incident_id": "inc_200dfff9",
+   "run_id": "run_a_617edd",
    "pipeline_id": "PIPELINE_A",
    "severity": "P3",
    "category": "DATA_QUALITY",
@@ -92,12 +92,12 @@
     "valid_count": 9
    },
    "blocked_by_guard": false,
-   "created_at": "2026-10-16T07:11:06.944517+00:00",
-   "resolved_at": "2026-10-16T07:11:06.994131+00:00"
+   "created_at": "2026-10-16T08:08:23.731640+00:00",
+   "resolved_at": "2026-10-16T08:08:23.769152+00:00"
   },
   {
-   "incident_id": "inc_8814b0ce",
-   "run_id": "run_a_4b3187",
+   "incident_id": "inc_ed79f574",
+   "run_id": "run_a_380814",
    "pipeline_id": "PIPELINE_A",
    "severity": "P3",
    "category": "DATA_QUALITY",
@@ -112,12 +112,12 @@
     "valid_count": 9
    },
    "blocked_by_guard": false,
-   "created_at": "2026-10-16T07:11:03.564448+00:00",
-   "resolved_at": "2026-10-16T07:11:03.617352+00:00"
+   "created_at": "2026-10-16T08:08:20.389891+00:00",
+   "resolved_at": "2026-10-16T08:08:20.423946+00:00"
   },
   {
-   "incident_id": "inc_5ae44ac6",
-   "run_id": "run_a_373d17",
+   "incident_id": "inc_334360a9",
+   "run_id": "run_a_80d855",
    "pipeline_id": "PIPELINE_A",
    "severity": "P3",
    "category": "DATA_QUALITY",
@@ -126,18 +126,38 @@
    "error_message": "[ErrorSignature: PIPELINE_A|ValueError|root_structure|4e317b2d8ff216ce] Invalid JSON: File must contain a JSON array (list) of customer records.",
    "stack_trace": "Traceback (most recent call last):\n  File \"C:\\D wala\\DRDO\\enterprise_healing_agent\\src\\pipeline\\json_pipeline.py\", line 185, in execute\n    raise ValueError(\nValueError: [ErrorSignature: PIPELINE_A|ValueError|root_structure|4e317b2d8ff216ce] Invalid JSON: File must contain a JSON array (list) of customer records.\n",
    "root_cause": null,
-   "recovery_action": "Action: AI_FIX | Rationale: Gemini's fix (unwrap 'customers') passed the dry run on a copy. Why: The customer records are wrapped inside a top-level object under the 'customers' key.",
+   "recovery_action": "Action: AI_FIX | Rationale: Gemini's fix (unwrap 'customers') passed the dry run on a copy. Why: The customer records are wrapped inside an object under the key 'customers'.",
    "telemetry_metadata": {
-    "source_path": "C:\\Users\\SRINIV~1\\AppData\\Local\\Temp\\eha_demo_9zwwbqj9\\db\\customers.json",
+    "source_path": "C:\\Users\\SRINIV~1\\AppData\\Local\\Temp\\eha_demo_xjlz22am\\db\\customers.json",
     "original_filename": "case_wrapped_records.json"
    },
    "blocked_by_guard": false,
-   "created_at": "2026-10-16T07:10:54.931368+00:00",
-   "resolved_at": "2026-10-16T07:11:00.222809+00:00"
+   "created_at": "2026-10-16T08:08:12.233285+00:00",
+   "resolved_at": "2026-10-16T08:08:17.119639+00:00"
   },
   {
-   "incident_id": "inc_cb0b206e",
-   "run_id": "run_a_8703e3",
+   "incident_id": "inc_0c9f3936",
+   "run_id": "run_a_7e11ea",
+   "pipeline_id": "PIPELINE_A",
+   "severity": "P3",
+   "category": "DATA_QUALITY",
+   "status": "RESOLVED",
+   "error_class": "ValueError",
+   "error_message": "[ErrorSignature: PIPELINE_A|JSONDecodeError|malformed_syntax|7af2047ff05ce062] Invalid JSON Syntax: Expecting property name enclosed in double quotes: line 8 column 3 (char 564)",
+   "stack_trace": "Traceback (most recent call last):\n  File \"C:\\D wala\\DRDO\\enterprise_healing_agent\\src\\pipeline\\json_pipeline.py\", line 172, in execute\n    raw_data = json.load(file)\n               ^^^^^^^^^^^^^^^\n  File \"C:\\Users\\Srinivasa\\AppData\\Local\\Programs\\Python\\Python311\\Lib\\json\\__init__.py\", line 293, in load\n    return loads(fp.read(),\n           ^^^^^^^^^^^^^^^^\n  File \"C:\\Users\\Srinivasa\\AppData\\Local\\Programs\\Python\\Python311\\Lib\\json\\__init__.py\", line 346, in loads\n    return _default_decoder.decode(s)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"C:\\Users\\Srinivasa\\AppData\\Local\\Programs\\Python\\Python311\\Lib\\json\\decoder.py\", line 337, in decode\n    obj, end = self.raw_decode(s, idx=_w(s, 0).end())\n               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"C:\\Users\\Srinivasa\\AppData\\Local\\Programs\\Python\\Python311\\Lib\\json\\decoder.py\", line 353, in raw_decode\n    obj, end = self.scan_once(s, idx)\n               ^^^^^^^^^^^^^^^^^^^^^^\njson.decoder.JSONDecodeError: Expecting property name enclosed in double quotes: line 8 column 3 (char 564)\n\nDuring handling of the above exception, another exception occurred:\n\nTraceback (most recent call last):\n  File \"C:\\D wala\\DRDO\\enterprise_healing_agent\\src\\pipeline\\json_pipeline.py\", line 175, in execute\n    raise ValueError(\nValueError: [ErrorSignature: PIPELINE_A|JSONDecodeError|malformed_syntax|7af2047ff05ce062] Invalid JSON Syntax: Expecting property name enclosed in double quotes: line 8 column 3 (char 564)\n",
+   "root_cause": "The data pipeline encountered a JSONDecodeError while attempting to load a raw data file using Python's built-in json.load() method. Specifically, line 8, column 3 of the input file contains malformed JSON syntax where a property name is not properly enclosed in double quotes, violating standard JSON specifications. This triggered an unhandled decoding exception which was subsequently caught and re-raised as a ValueError by the pipeline execution wrapper at json_pipeline.py line 175.",
+   "recovery_action": "Action: AI_FIX | Rationale: Gemini's fix (unwrap 'customers') passed the dry run on a copy. Why: The records are wrapped inside a root object under the 'customers' key.",
+   "telemetry_metadata": {
+    "source_path": "C:\\Users\\SRINIV~1\\AppData\\Local\\Temp\\eha_demo_xjlz22am\\db\\customers.json",
+    "original_filename": "case_broken_and_wrapped.json"
+   },
+   "blocked_by_guard": false,
+   "created_at": "2026-10-16T08:07:48.547164+00:00",
+   "resolved_at": "2026-10-16T08:08:08.998868+00:00"
+  },
+  {
+   "incident_id": "inc_5f1aa4b3",
+   "run_id": "run_a_409332",
    "pipeline_id": "PIPELINE_A",
    "severity": "P3",
    "category": "DATA_QUALITY",
@@ -152,12 +172,12 @@
     "valid_count": 9
    },
    "blocked_by_guard": false,
-   "created_at": "2026-10-16T07:10:51.536434+00:00",
-   "resolved_at": "2026-10-16T07:10:51.585345+00:00"
+   "created_at": "2026-10-16T08:07:44.959700+00:00",
+   "resolved_at": "2026-10-16T08:07:45.030614+00:00"
   },
   {
-   "incident_id": "inc_4fd193db",
-   "run_id": "run_a_8703e3",
+   "incident_id": "inc_71a27bae",
+   "run_id": "run_a_409332",
    "pipeline_id": "PIPELINE_A",
    "severity": "P3",
    "category": "DATA_QUALITY",
@@ -165,19 +185,19 @@
    "error_class": "ValueError",
    "error_message": "[ErrorSignature: PIPELINE_A|JSONDecodeError|malformed_syntax|7af2047ff05ce062] Invalid JSON Syntax: Expecting ',' delimiter: line 7 column 3 (char 527)",
    "stack_trace": "Traceback (most recent call last):\n  File \"C:\\D wala\\DRDO\\enterprise_healing_agent\\src\\pipeline\\json_pipeline.py\", line 172, in execute\n    raw_data = json.load(file)\n               ^^^^^^^^^^^^^^^\n  File \"C:\\Users\\Srinivasa\\AppData\\Local\\Programs\\Python\\Python311\\Lib\\json\\__init__.py\", line 293, in load\n    return loads(fp.read(),\n           ^^^^^^^^^^^^^^^^\n  File \"C:\\Users\\Srinivasa\\AppData\\Local\\Programs\\Python\\Python311\\Lib\\json\\__init__.py\", line 346, in loads\n    return _default_decoder.decode(s)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"C:\\Users\\Srinivasa\\AppData\\Local\\Programs\\Python\\Python311\\Lib\\json\\decoder.py\", line 337, in decode\n    obj, end = self.raw_decode(s, idx=_w(s, 0).end())\n               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"C:\\Users\\Srinivasa\\AppData\\Local\\Programs\\Python\\Python311\\Lib\\json\\decoder.py\", line 353, in raw_decode\n    obj, end = self.scan_once(s, idx)\n               ^^^^^^^^^^^^^^^^^^^^^^\njson.decoder.JSONDecodeError: Expecting ',' delimiter: line 7 column 3 (char 527)\n\nDuring handling of the above exception, another exception occurred:\n\nTraceback (most recent call last):\n  File \"C:\\D wala\\DRDO\\enterprise_healing_agent\\src\\pipeline\\json_pipeline.py\", line 175, in execute\n    raise ValueError(\nValueError: [ErrorSignature: PIPELINE_A|JSONDecodeError|malformed_syntax|7af2047ff05ce062] Invalid JSON Syntax: Expecting ',' delimiter: line 7 column 3 (char 527)\n",
-   "root_cause": "The data pipeline encountered a ValueError due to a JSONDecodeError caused by malformed syntax in the input file being processed at line 7, column 3 (character offset 527). Specifically, the Python json module's load function encountered an unexpected token because a comma delimiter was missing between JSON key-value pairs or elements, leading to the failure of the raw_decode parser.",
+   "root_cause": "The pipeline execution failed due to a malformed JSON payload being processed by json.load() in json_pipeline.py at line 172. Specifically, a JSONDecodeError was raised because the parser encountered a syntax error at line 7, column 3 (character offset 527), where a comma delimiter was expected between JSON elements but was missing. This indicates upstream data corruption or an improper payload generation.",
    "recovery_action": "Action: REPAIR_FILE | Rationale: Detected malformed JSON syntax. Gemini will add only the missing brackets and commas; the data may not change.",
    "telemetry_metadata": {
-    "source_path": "C:\\Users\\SRINIV~1\\AppData\\Local\\Temp\\eha_demo_9zwwbqj9\\db\\customers.json",
+    "source_path": "C:\\Users\\SRINIV~1\\AppData\\Local\\Temp\\eha_demo_xjlz22am\\db\\customers.json",
     "original_filename": "case_malformed_syntax.json"
    },
    "blocked_by_guard": false,
-   "created_at": "2026-10-16T07:10:42.820994+00:00",
-   "resolved_at": "2026-10-16T07:10:51.671584+00:00"
+   "created_at": "2026-10-16T08:07:27.160678+00:00",
+   "resolved_at": "2026-10-16T08:07:45.168696+00:00"
   },
   {
-   "incident_id": "inc_4f7047f7",
-   "run_id": "run_a_a0876b",
+   "incident_id": "inc_442da0cb",
+   "run_id": "run_a_e02741",
    "pipeline_id": "PIPELINE_A",
    "severity": "P3",
    "category": "DATA_QUALITY",
@@ -188,16 +208,16 @@
    "root_cause": null,
    "recovery_action": "Action: RECONFIGURE | Rationale: Detected dictionary at root level instead of list. Reconfiguring pipeline to auto-flatten dictionary values.",
    "telemetry_metadata": {
-    "source_path": "C:\\Users\\SRINIV~1\\AppData\\Local\\Temp\\eha_demo_9zwwbqj9\\db\\customers.json",
+    "source_path": "C:\\Users\\SRINIV~1\\AppData\\Local\\Temp\\eha_demo_xjlz22am\\db\\customers.json",
     "original_filename": "case_invalid_root.json"
    },
    "blocked_by_guard": false,
-   "created_at": "2026-10-16T07:10:39.079479+00:00",
-   "resolved_at": "2026-10-16T07:10:39.521659+00:00"
+   "created_at": "2026-10-16T08:07:23.605604+00:00",
+   "resolved_at": "2026-10-16T08:07:23.952719+00:00"
   },
   {
-   "incident_id": "inc_7310fd30",
-   "run_id": "run_a_ca887b",
+   "incident_id": "inc_e6abedf7",
+   "run_id": "run_a_06376e",
    "pipeline_id": "PIPELINE_A",
    "severity": "P1",
    "category": "SCHEMA_DRIFT",
@@ -208,16 +228,16 @@
    "root_cause": null,
    "recovery_action": "Action: RECONFIGURE | Rationale: Deterministic alias matched missing key 'email' to payload key 'user_email'.",
    "telemetry_metadata": {
-    "source_path": "C:\\Users\\SRINIV~1\\AppData\\Local\\Temp\\eha_demo_9zwwbqj9\\db\\customers.json",
+    "source_path": "C:\\Users\\SRINIV~1\\AppData\\Local\\Temp\\eha_demo_xjlz22am\\db\\customers.json",
     "original_filename": "case_drift_multi.json"
    },
    "blocked_by_guard": false,
-   "created_at": "2026-10-16T07:10:34.956726+00:00",
-   "resolved_at": "2026-10-16T07:10:35.697313+00:00"
+   "created_at": "2026-10-16T08:07:19.845465+00:00",
+   "resolved_at": "2026-10-16T08:07:20.381346+00:00"
   },
   {
-   "incident_id": "inc_cc80cbd7",
-   "run_id": "run_a_ca0119",
+   "incident_id": "inc_b8f348a4",
+   "run_id": "run_a_89b193",
    "pipeline_id": "PIPELINE_A",
    "severity": "P1",
    "category": "SCHEMA_DRIFT",
@@ -228,16 +248,16 @@
    "root_cause": null,
    "recovery_action": "Action: RECONFIGURE | Rationale: Deterministic alias matched missing key 'customer_id' to payload key 'id'.",
    "telemetry_metadata": {
-    "source_path": "C:\\Users\\SRINIV~1\\AppData\\Local\\Temp\\eha_demo_9zwwbqj9\\db\\customers.json",
+    "source_path": "C:\\Users\\SRINIV~1\\AppData\\Local\\Temp\\eha_demo_xjlz22am\\db\\customers.json",
     "original_filename": "case_drift_id.json"
    },
    "blocked_by_guard": false,
-   "created_at": "2026-10-16T07:10:31.043452+00:00",
-   "resolved_at": "2026-10-16T07:10:31.622689+00:00"
+   "created_at": "2026-10-16T08:07:16.237021+00:00",
+   "resolved_at": "2026-10-16T08:07:16.611381+00:00"
   },
   {
-   "incident_id": "inc_bc2dd319",
-   "run_id": "run_a_c3747a",
+   "incident_id": "inc_c75b0df3",
+   "run_id": "run_a_dac0f7",
    "pipeline_id": "PIPELINE_A",
    "severity": "P1",
    "category": "SCHEMA_DRIFT",
@@ -248,16 +268,16 @@
    "root_cause": null,
    "recovery_action": "Action: RECONFIGURE | Rationale: Deterministic alias matched missing key 'email' to payload key 'user_email'.",
    "telemetry_metadata": {
-    "source_path": "C:\\Users\\SRINIV~1\\AppData\\Local\\Temp\\eha_demo_9zwwbqj9\\db\\customers.json",
+    "source_path": "C:\\Users\\SRINIV~1\\AppData\\Local\\Temp\\eha_demo_xjlz22am\\db\\customers.json",
     "original_filename": "case_drift_email.json"
    },
    "blocked_by_guard": false,
-   "created_at": "2026-10-16T07:10:27.023367+00:00",
-   "resolved_at": "2026-10-16T07:10:27.682787+00:00"
+   "created_at": "2026-10-16T08:07:12.624957+00:00",
+   "resolved_at": "2026-10-16T08:07:12.983522+00:00"
   },
   {
-   "incident_id": "inc_923f2493",
-   "run_id": "run_a_248d38",
+   "incident_id": "inc_5760f4d9",
+   "run_id": "run_a_f54735",
    "pipeline_id": "PIPELINE_A",
    "severity": "P1",
    "category": "SCHEMA_DRIFT",
@@ -268,452 +288,519 @@
    "root_cause": null,
    "recovery_action": "Action: RECONFIGURE | Rationale: Deterministic alias matched missing key 'country' to payload key 'nation'.",
    "telemetry_metadata": {
-    "source_path": "C:\\Users\\SRINIV~1\\AppData\\Local\\Temp\\eha_demo_9zwwbqj9\\db\\customers.json",
+    "source_path": "C:\\Users\\SRINIV~1\\AppData\\Local\\Temp\\eha_demo_xjlz22am\\db\\customers.json",
     "original_filename": "case_drift_country.json"
    },
    "blocked_by_guard": false,
-   "created_at": "2026-10-16T07:10:21.632982+00:00",
-   "resolved_at": "2026-10-16T07:10:23.666430+00:00"
+   "created_at": "2026-10-16T08:07:08.003366+00:00",
+   "resolved_at": "2026-10-16T08:07:09.363541+00:00"
   }
  ],
  "audits": {
-  "inc_89fb632a": [
+  "inc_be3d44f8": [
    {
     "component": "TELEMETRY_RECEIVER",
     "message": "Intercepted critical failure [sqlite3.OperationalError]. Severity ranked: P0",
-    "timestamp": "2026-10-16T07:11:27.879894+00:00"
+    "timestamp": "2026-10-16T08:08:53.775698+00:00"
    },
    {
     "component": "MONITOR_AGENT",
     "message": "Successfully normalized raw incident logs.",
-    "timestamp": "2026-10-16T07:11:27.947167+00:00"
+    "timestamp": "2026-10-16T08:08:53.837153+00:00"
    },
    {
     "component": "CLASSIFIER_AGENT",
     "message": "Upgraded severity to P0 due to 1 existing unresolved incidents on pipeline PIPELINE_B.",
-    "timestamp": "2026-10-16T07:11:28.000177+00:00"
+    "timestamp": "2026-10-16T08:08:53.907217+00:00"
    },
    {
     "component": "CLASSIFIER_AGENT",
     "message": "Route: RCA (Gemini), then a person, because there is no safe automatic fix for this kind of failure; Gemini explains it for the person who takes over.",
-    "timestamp": "2026-10-16T07:11:28.055035+00:00"
+    "timestamp": "2026-10-16T08:08:53.936207+00:00"
    },
    {
     "component": "RCA_AGENT",
-    "message": "Analysis completed: The data pipeline execution failed because the required SQLi...",
-    "timestamp": "2026-10-16T07:11:30.427857+00:00"
+    "message": "Analysis completed: The pipeline execution failed because the required source ta...",
+    "timestamp": "2026-10-16T08:08:59.432332+00:00"
    },
    {
     "component": "ESCALATION",
     "message": "No safe automatic fix exists for this failure, so it was handed to a person with Gemini's explanation.",
-    "timestamp": "2026-10-16T07:11:30.507444+00:00"
+    "timestamp": "2026-10-16T08:08:59.512433+00:00"
    }
   ],
-  "inc_4346bdc2": [
+  "inc_f3af10bb": [
    {
     "component": "TELEMETRY_RECEIVER",
     "message": "Intercepted critical failure [ValueError]. Severity ranked: P2",
-    "timestamp": "2026-10-16T07:11:24.351986+00:00"
+    "timestamp": "2026-10-16T08:08:50.292939+00:00"
    },
    {
     "component": "MONITOR_AGENT",
     "message": "Successfully normalized raw incident logs.",
-    "timestamp": "2026-10-16T07:11:24.413997+00:00"
+    "timestamp": "2026-10-16T08:08:50.352534+00:00"
    },
    {
     "component": "CLASSIFIER_AGENT",
     "message": "Upgraded severity to P0 due to 1 existing unresolved incidents on pipeline PIPELINE_B.",
-    "timestamp": "2026-10-16T07:11:24.463167+00:00"
+    "timestamp": "2026-10-16T08:08:50.392041+00:00"
    },
    {
     "component": "CLASSIFIER_AGENT",
     "message": "Route: Recovery (no Gemini needed), because every row is bad, so Recovery quarantines them without Gemini.",
-    "timestamp": "2026-10-16T07:11:24.482047+00:00"
+    "timestamp": "2026-10-16T08:08:50.411370+00:00"
    },
    {
     "component": "RECOVERY_AGENT",
     "message": "Remediation generated: QUARANTINE. Referential Integrity violation detected. Isolating corrupted records.",
-    "timestamp": "2026-10-16T07:11:24.525482+00:00"
+    "timestamp": "2026-10-16T08:08:50.447766+00:00"
    },
    {
     "component": "ACTUATOR",
     "message": "Executing remediation strategy: [QUARANTINE]",
-    "timestamp": "2026-10-16T07:11:24.550149+00:00"
+    "timestamp": "2026-10-16T08:08:50.468875+00:00"
    },
    {
     "component": "ACTUATOR",
     "message": "Poisoned records isolated to quarantine. No valid rows remained to load, so the run is QUARANTINED (not HEALED).",
-    "timestamp": "2026-10-16T07:11:24.618984+00:00"
+    "timestamp": "2026-10-16T08:08:50.529693+00:00"
    }
   ],
-  "inc_030a9118": [
+  "inc_ab3f9e08": [
    {
     "component": "TELEMETRY_RECEIVER",
     "message": "Intercepted critical failure [sqlite3.OperationalError]. Severity ranked: P1",
-    "timestamp": "2026-10-16T07:11:13.520059+00:00"
+    "timestamp": "2026-10-16T08:08:30.253862+00:00"
    },
    {
     "component": "MONITOR_AGENT",
     "message": "Successfully normalized raw incident logs.",
-    "timestamp": "2026-10-16T07:11:13.609216+00:00"
+    "timestamp": "2026-10-16T08:08:30.321027+00:00"
    },
    {
     "component": "CLASSIFIER_AGENT",
     "message": "Confirmed operational category as: SCHEMA_DRIFT.",
-    "timestamp": "2026-10-16T07:11:13.655167+00:00"
+    "timestamp": "2026-10-16T08:08:30.361257+00:00"
    },
    {
     "component": "CLASSIFIER_AGENT",
     "message": "Route: RCA (Gemini), because the SQL query needs rewriting, so Gemini analyses it first.",
-    "timestamp": "2026-10-16T07:11:13.659164+00:00"
+    "timestamp": "2026-10-16T08:08:30.364973+00:00"
    },
    {
     "component": "RCA_AGENT",
     "message": "Analysis completed: The pipeline execution failed due to an SQL operational erro...",
-    "timestamp": "2026-10-16T07:11:16.818752+00:00"
+    "timestamp": "2026-10-16T08:08:37.527676+00:00"
    },
    {
     "component": "RECOVERY_AGENT",
     "message": "Remediation generated: ESCALATE. LLM reported the SQL error as UNRESOLVABLE (required column has no equivalent). Escalating instead of inventing values.",
-    "timestamp": "2026-10-16T07:11:20.974009+00:00"
+    "timestamp": "2026-10-16T08:08:46.942163+00:00"
    },
    {
     "component": "ESCALATION",
     "message": "Recovery found no safe fix, so the incident was handed to a person.",
-    "timestamp": "2026-10-16T07:11:21.062485+00:00"
+    "timestamp": "2026-10-16T08:08:47.007073+00:00"
    }
   ],
-  "inc_94ef2a8c": [
+  "inc_200dfff9": [
    {
     "component": "CONTROL_PLANE",
     "message": "Partial ingestion completed: 9 saved, 1 quarantined.",
-    "timestamp": "2026-10-16T07:11:06.997797+00:00"
+    "timestamp": "2026-10-16T08:08:23.772231+00:00"
    }
   ],
-  "inc_8814b0ce": [
+  "inc_ed79f574": [
    {
     "component": "CONTROL_PLANE",
     "message": "Partial ingestion completed: 9 saved, 1 quarantined.",
-    "timestamp": "2026-10-16T07:11:03.644084+00:00"
+    "timestamp": "2026-10-16T08:08:20.427537+00:00"
    }
   ],
-  "inc_5ae44ac6": [
+  "inc_334360a9": [
    {
     "component": "TELEMETRY_RECEIVER",
     "message": "Intercepted critical failure [ValueError]. Severity ranked: P3",
-    "timestamp": "2026-10-16T07:10:54.950634+00:00"
+    "timestamp": "2026-10-16T08:08:12.249396+00:00"
    },
    {
     "component": "MONITOR_AGENT",
     "message": "Successfully normalized raw incident logs.",
-    "timestamp": "2026-10-16T07:10:55.022352+00:00"
+    "timestamp": "2026-10-16T08:08:12.307595+00:00"
    },
    {
     "component": "CLASSIFIER_AGENT",
     "message": "Confirmed operational category as: DATA_QUALITY.",
-    "timestamp": "2026-10-16T07:10:55.065286+00:00"
+    "timestamp": "2026-10-16T08:08:12.344253+00:00"
    },
    {
     "component": "CLASSIFIER_AGENT",
     "message": "Route: Recovery (no Gemini needed), because the file is an object instead of a list; a rule flattens it without Gemini.",
-    "timestamp": "2026-10-16T07:10:55.069303+00:00"
+    "timestamp": "2026-10-16T08:08:12.347267+00:00"
    },
    {
     "component": "RECOVERY_AGENT",
     "message": "Remediation generated: RECONFIGURE. Detected dictionary at root level instead of list. Reconfiguring pipeline to auto-flatten dictionary values.",
-    "timestamp": "2026-10-16T07:10:55.117128+00:00"
+    "timestamp": "2026-10-16T08:08:12.384645+00:00"
    },
    {
     "component": "ACTUATOR",
     "message": "Executing remediation strategy: [RECONFIGURE]",
-    "timestamp": "2026-10-16T07:10:55.137815+00:00"
+    "timestamp": "2026-10-16T08:08:12.405288+00:00"
    },
    {
     "component": "ACTUATOR",
     "message": "Verification run 1 failed: Data Quality Violation: All 1 customer rows failed validation. Trying an AI fix.",
-    "timestamp": "2026-10-16T07:10:55.263493+00:00"
+    "timestamp": "2026-10-16T08:08:12.521760+00:00"
    },
    {
     "component": "AI_FIX_AGENT",
-    "message": "Gemini proposed: unwrap 'customers'. Why: The customer records are wrapped inside a top-level object under the 'customers' key..",
-    "timestamp": "2026-10-16T07:10:59.940746+00:00"
+    "message": "Gemini proposed: unwrap 'customers'. Why: The customer records are wrapped inside an object under the key 'customers'..",
+    "timestamp": "2026-10-16T08:08:16.936463+00:00"
    },
    {
     "component": "AI_FIX_AGENT",
     "message": "Dry run passed on a copy: every step is allowed and works; the result is a list of records; same number of records (10); no value was added, changed or removed; the pipeline's checks pass (10 valid, 0 held back).",
-    "timestamp": "2026-10-16T07:10:59.978096+00:00"
+    "timestamp": "2026-10-16T08:08:16.948074+00:00"
    },
    {
     "component": "ACTUATOR",
     "message": "Executing remediation strategy: [AI_FIX]",
-    "timestamp": "2026-10-16T07:11:00.046337+00:00"
+    "timestamp": "2026-10-16T08:08:16.989371+00:00"
    },
    {
     "component": "ACTUATOR",
     "message": "Healed by an AI fix that passed a dry run on a copy. Re-run saved 10 records.",
-    "timestamp": "2026-10-16T07:11:00.226360+00:00"
+    "timestamp": "2026-10-16T08:08:17.123650+00:00"
    }
   ],
-  "inc_cb0b206e": [
-   {
-    "component": "CONTROL_PLANE",
-    "message": "Partial ingestion completed: 9 saved, 1 quarantined.",
-    "timestamp": "2026-10-16T07:10:51.593405+00:00"
-   }
-  ],
-  "inc_4fd193db": [
+  "inc_0c9f3936": [
    {
     "component": "TELEMETRY_RECEIVER",
     "message": "Intercepted critical failure [ValueError]. Severity ranked: P3",
-    "timestamp": "2026-10-16T07:10:42.838100+00:00"
+    "timestamp": "2026-10-16T08:07:48.593914+00:00"
    },
    {
     "component": "MONITOR_AGENT",
     "message": "Successfully normalized raw incident logs.",
-    "timestamp": "2026-10-16T07:10:42.924173+00:00"
+    "timestamp": "2026-10-16T08:07:48.731562+00:00"
    },
    {
     "component": "CLASSIFIER_AGENT",
     "message": "Confirmed operational category as: DATA_QUALITY.",
-    "timestamp": "2026-10-16T07:10:42.978228+00:00"
+    "timestamp": "2026-10-16T08:07:48.768787+00:00"
    },
    {
     "component": "CLASSIFIER_AGENT",
     "message": "Route: RCA (Gemini), because the JSON syntax is broken, so Gemini analyses it and then repairs the brackets.",
-    "timestamp": "2026-10-16T07:10:42.982230+00:00"
+    "timestamp": "2026-10-16T08:07:48.772337+00:00"
    },
    {
     "component": "RCA_AGENT",
-    "message": "Analysis completed: The data pipeline encountered a ValueError due to a JSONDeco...",
-    "timestamp": "2026-10-16T07:10:47.976593+00:00"
+    "message": "Analysis completed: The data pipeline encountered a JSONDecodeError while attemp...",
+    "timestamp": "2026-10-16T08:07:54.716184+00:00"
    },
    {
     "component": "RECOVERY_AGENT",
     "message": "Remediation generated: REPAIR_FILE. Detected malformed JSON syntax. Gemini will add only the missing brackets and commas; the data may not change.",
-    "timestamp": "2026-10-16T07:10:48.050342+00:00"
+    "timestamp": "2026-10-16T08:07:54.761007+00:00"
    },
    {
     "component": "ACTUATOR",
     "message": "Executing remediation strategy: [REPAIR_FILE]",
-    "timestamp": "2026-10-16T07:10:48.079719+00:00"
+    "timestamp": "2026-10-16T08:07:54.780135+00:00"
    },
    {
     "component": "ACTUATOR",
     "message": "File syntax repaired successfully by LLM.",
-    "timestamp": "2026-10-16T07:10:51.339274+00:00"
+    "timestamp": "2026-10-16T08:08:04.432188+00:00"
    },
    {
     "component": "ACTUATOR",
-    "message": "Auto-remediation successful. Re-run saved 9 records.",
-    "timestamp": "2026-10-16T07:10:51.677057+00:00"
+    "message": "Verification run 1 failed: [ErrorSignature: PIPELINE_A|ValueError|root_structure|4e317b2d8ff216ce] Invalid JSON: File must contain a JSON array (list) of customer records. Trying an AI fix.",
+    "timestamp": "2026-10-16T08:08:04.547291+00:00"
+   },
+   {
+    "component": "AI_FIX_AGENT",
+    "message": "Gemini proposed: unwrap 'customers'. Why: The records are wrapped inside a root object under the 'customers' key..",
+    "timestamp": "2026-10-16T08:08:08.750649+00:00"
+   },
+   {
+    "component": "AI_FIX_AGENT",
+    "message": "Dry run passed on a copy: every step is allowed and works; the result is a list of records; same number of records (10); no value was added, changed or removed; the pipeline's checks pass (10 valid, 0 held back).",
+    "timestamp": "2026-10-16T08:08:08.763070+00:00"
+   },
+   {
+    "component": "ACTUATOR",
+    "message": "Executing remediation strategy: [AI_FIX]",
+    "timestamp": "2026-10-16T08:08:08.810171+00:00"
+   },
+   {
+    "component": "ACTUATOR",
+    "message": "Healed by an AI fix that passed a dry run on a copy. Re-run saved 10 records.",
+    "timestamp": "2026-10-16T08:08:09.002864+00:00"
    }
   ],
-  "inc_4f7047f7": [
+  "inc_5f1aa4b3": [
+   {
+    "component": "CONTROL_PLANE",
+    "message": "Partial ingestion completed: 9 saved, 1 quarantined.",
+    "timestamp": "2026-10-16T08:07:45.034761+00:00"
+   }
+  ],
+  "inc_71a27bae": [
    {
     "component": "TELEMETRY_RECEIVER",
     "message": "Intercepted critical failure [ValueError]. Severity ranked: P3",
-    "timestamp": "2026-10-16T07:10:39.096510+00:00"
+    "timestamp": "2026-10-16T08:07:27.178677+00:00"
    },
    {
     "component": "MONITOR_AGENT",
     "message": "Successfully normalized raw incident logs.",
-    "timestamp": "2026-10-16T07:10:39.164321+00:00"
+    "timestamp": "2026-10-16T08:07:27.237517+00:00"
    },
    {
     "component": "CLASSIFIER_AGENT",
     "message": "Confirmed operational category as: DATA_QUALITY.",
-    "timestamp": "2026-10-16T07:10:39.210071+00:00"
+    "timestamp": "2026-10-16T08:07:27.272384+00:00"
+   },
+   {
+    "component": "CLASSIFIER_AGENT",
+    "message": "Route: RCA (Gemini), because the JSON syntax is broken, so Gemini analyses it and then repairs the brackets.",
+    "timestamp": "2026-10-16T08:07:27.275985+00:00"
+   },
+   {
+    "component": "RCA_AGENT",
+    "message": "Analysis completed: The pipeline execution failed due to a malformed JSON payloa...",
+    "timestamp": "2026-10-16T08:07:37.621237+00:00"
+   },
+   {
+    "component": "RECOVERY_AGENT",
+    "message": "Remediation generated: REPAIR_FILE. Detected malformed JSON syntax. Gemini will add only the missing brackets and commas; the data may not change.",
+    "timestamp": "2026-10-16T08:07:37.683494+00:00"
+   },
+   {
+    "component": "ACTUATOR",
+    "message": "Executing remediation strategy: [REPAIR_FILE]",
+    "timestamp": "2026-10-16T08:07:37.712225+00:00"
+   },
+   {
+    "component": "ACTUATOR",
+    "message": "File syntax repaired successfully by LLM.",
+    "timestamp": "2026-10-16T08:07:44.759414+00:00"
+   },
+   {
+    "component": "ACTUATOR",
+    "message": "Auto-remediation successful. Re-run saved 9 records.",
+    "timestamp": "2026-10-16T08:07:45.173311+00:00"
+   }
+  ],
+  "inc_442da0cb": [
+   {
+    "component": "TELEMETRY_RECEIVER",
+    "message": "Intercepted critical failure [ValueError]. Severity ranked: P3",
+    "timestamp": "2026-10-16T08:07:23.622619+00:00"
+   },
+   {
+    "component": "MONITOR_AGENT",
+    "message": "Successfully normalized raw incident logs.",
+    "timestamp": "2026-10-16T08:07:23.675178+00:00"
+   },
+   {
+    "component": "CLASSIFIER_AGENT",
+    "message": "Confirmed operational category as: DATA_QUALITY.",
+    "timestamp": "2026-10-16T08:07:23.710709+00:00"
    },
    {
     "component": "CLASSIFIER_AGENT",
     "message": "Route: Recovery (no Gemini needed), because the file is an object instead of a list; a rule flattens it without Gemini.",
-    "timestamp": "2026-10-16T07:10:39.215807+00:00"
+    "timestamp": "2026-10-16T08:07:23.714262+00:00"
    },
    {
     "component": "RECOVERY_AGENT",
     "message": "Remediation generated: RECONFIGURE. Detected dictionary at root level instead of list. Reconfiguring pipeline to auto-flatten dictionary values.",
-    "timestamp": "2026-10-16T07:10:39.262739+00:00"
+    "timestamp": "2026-10-16T08:07:23.752116+00:00"
    },
    {
     "component": "ACTUATOR",
     "message": "Executing remediation strategy: [RECONFIGURE]",
-    "timestamp": "2026-10-16T07:10:39.285642+00:00"
+    "timestamp": "2026-10-16T08:07:23.770111+00:00"
    },
    {
     "component": "ACTUATOR",
     "message": "Configuration version 1 verified ({'flatten_root_dict': True}). Pipeline auto-remediated and saved 10 records.",
-    "timestamp": "2026-10-16T07:10:39.528281+00:00"
+    "timestamp": "2026-10-16T08:07:23.956155+00:00"
    }
   ],
-  "inc_7310fd30": [
+  "inc_e6abedf7": [
    {
     "component": "TELEMETRY_RECEIVER",
     "message": "Intercepted critical failure [KeyError]. Severity ranked: P1",
-    "timestamp": "2026-10-16T07:10:34.980990+00:00"
+    "timestamp": "2026-10-16T08:07:19.864801+00:00"
    },
    {
     "component": "MONITOR_AGENT",
     "message": "Successfully normalized raw incident logs.",
-    "timestamp": "2026-10-16T07:10:35.037348+00:00"
+    "timestamp": "2026-10-16T08:07:19.920022+00:00"
    },
    {
     "component": "CLASSIFIER_AGENT",
     "message": "Confirmed operational category as: SCHEMA_DRIFT.",
-    "timestamp": "2026-10-16T07:10:35.084010+00:00"
+    "timestamp": "2026-10-16T08:07:19.958050+00:00"
    },
    {
     "component": "CLASSIFIER_AGENT",
     "message": "Route: Recovery (no Gemini needed), because a known column alias matches, so Recovery can fix it without Gemini.",
-    "timestamp": "2026-10-16T07:10:35.100536+00:00"
+    "timestamp": "2026-10-16T08:07:19.968973+00:00"
    },
    {
     "component": "RECOVERY_AGENT",
     "message": "Remediation generated: RECONFIGURE. Deterministic alias matched missing key 'customer_id' to payload key 'id'.",
-    "timestamp": "2026-10-16T07:10:35.165793+00:00"
+    "timestamp": "2026-10-16T08:07:20.017299+00:00"
    },
    {
     "component": "ACTUATOR",
     "message": "Executing remediation strategy: [RECONFIGURE]",
-    "timestamp": "2026-10-16T07:10:35.196444+00:00"
+    "timestamp": "2026-10-16T08:07:20.035323+00:00"
    },
    {
     "component": "ACTUATOR",
     "message": "Verification run 1 found another drift: column 'email' is missing. Back to Recovery.",
-    "timestamp": "2026-10-16T07:10:35.329688+00:00"
+    "timestamp": "2026-10-16T08:07:20.142632+00:00"
    },
    {
     "component": "RECOVERY_AGENT",
     "message": "Remediation generated: RECONFIGURE. Deterministic alias matched missing key 'email' to payload key 'user_email'.",
-    "timestamp": "2026-10-16T07:10:35.382815+00:00"
+    "timestamp": "2026-10-16T08:07:20.192377+00:00"
    },
    {
     "component": "ACTUATOR",
     "message": "Executing remediation strategy: [RECONFIGURE]",
-    "timestamp": "2026-10-16T07:10:35.418109+00:00"
+    "timestamp": "2026-10-16T08:07:20.210919+00:00"
    },
    {
     "component": "ACTUATOR",
     "message": "Configuration version 1 verified ({'id_col': 'id', 'email_col': 'user_email'}). Pipeline auto-remediated and saved 10 records.",
-    "timestamp": "2026-10-16T07:10:35.704421+00:00"
+    "timestamp": "2026-10-16T08:07:20.384418+00:00"
    }
   ],
-  "inc_cc80cbd7": [
+  "inc_b8f348a4": [
    {
     "component": "TELEMETRY_RECEIVER",
     "message": "Intercepted critical failure [KeyError]. Severity ranked: P1",
-    "timestamp": "2026-10-16T07:10:31.072819+00:00"
+    "timestamp": "2026-10-16T08:07:16.255753+00:00"
    },
    {
     "component": "MONITOR_AGENT",
     "message": "Successfully normalized raw incident logs.",
-    "timestamp": "2026-10-16T07:10:31.160330+00:00"
+    "timestamp": "2026-10-16T08:07:16.316718+00:00"
    },
    {
     "component": "CLASSIFIER_AGENT",
     "message": "Confirmed operational category as: SCHEMA_DRIFT.",
-    "timestamp": "2026-10-16T07:10:31.215664+00:00"
+    "timestamp": "2026-10-16T08:07:16.355911+00:00"
    },
    {
     "component": "CLASSIFIER_AGENT",
     "message": "Route: Recovery (no Gemini needed), because a known column alias matches, so Recovery can fix it without Gemini.",
-    "timestamp": "2026-10-16T07:10:31.230238+00:00"
+    "timestamp": "2026-10-16T08:07:16.367614+00:00"
    },
    {
     "component": "RECOVERY_AGENT",
     "message": "Remediation generated: RECONFIGURE. Deterministic alias matched missing key 'customer_id' to payload key 'id'.",
-    "timestamp": "2026-10-16T07:10:31.309240+00:00"
+    "timestamp": "2026-10-16T08:07:16.413096+00:00"
    },
    {
     "component": "ACTUATOR",
     "message": "Executing remediation strategy: [RECONFIGURE]",
-    "timestamp": "2026-10-16T07:10:31.342743+00:00"
+    "timestamp": "2026-10-16T08:07:16.433214+00:00"
    },
    {
     "component": "ACTUATOR",
     "message": "Configuration version 1 verified ({'id_col': 'id'}). Pipeline auto-remediated and saved 10 records.",
-    "timestamp": "2026-10-16T07:10:31.626439+00:00"
+    "timestamp": "2026-10-16T08:07:16.614366+00:00"
    }
   ],
-  "inc_bc2dd319": [
+  "inc_c75b0df3": [
    {
     "component": "TELEMETRY_RECEIVER",
     "message": "Intercepted critical failure [KeyError]. Severity ranked: P1",
-    "timestamp": "2026-10-16T07:10:27.056221+00:00"
+    "timestamp": "2026-10-16T08:07:12.641212+00:00"
    },
    {
     "component": "MONITOR_AGENT",
     "message": "Successfully normalized raw incident logs.",
-    "timestamp": "2026-10-16T07:10:27.160382+00:00"
+    "timestamp": "2026-10-16T08:07:12.698327+00:00"
    },
    {
     "component": "CLASSIFIER_AGENT",
     "message": "Confirmed operational category as: SCHEMA_DRIFT.",
-    "timestamp": "2026-10-16T07:10:27.227206+00:00"
+    "timestamp": "2026-10-16T08:07:12.731940+00:00"
    },
    {
     "component": "CLASSIFIER_AGENT",
     "message": "Route: Recovery (no Gemini needed), because a known column alias matches, so Recovery can fix it without Gemini.",
-    "timestamp": "2026-10-16T07:10:27.252590+00:00"
+    "timestamp": "2026-10-16T08:07:12.744457+00:00"
    },
    {
     "component": "RECOVERY_AGENT",
     "message": "Remediation generated: RECONFIGURE. Deterministic alias matched missing key 'email' to payload key 'user_email'.",
-    "timestamp": "2026-10-16T07:10:27.342983+00:00"
+    "timestamp": "2026-10-16T08:07:12.790607+00:00"
    },
    {
     "component": "ACTUATOR",
     "message": "Executing remediation strategy: [RECONFIGURE]",
-    "timestamp": "2026-10-16T07:10:27.381585+00:00"
+    "timestamp": "2026-10-16T08:07:12.807191+00:00"
    },
    {
     "component": "ACTUATOR",
     "message": "Configuration version 1 verified ({'email_col': 'user_email'}). Pipeline auto-remediated and saved 10 records.",
-    "timestamp": "2026-10-16T07:10:27.688427+00:00"
+    "timestamp": "2026-10-16T08:07:12.986637+00:00"
    }
   ],
-  "inc_923f2493": [
+  "inc_5760f4d9": [
    {
     "component": "TELEMETRY_RECEIVER",
     "message": "Intercepted critical failure [KeyError]. Severity ranked: P1",
-    "timestamp": "2026-10-16T07:10:21.694285+00:00"
+    "timestamp": "2026-10-16T08:07:08.027118+00:00"
    },
    {
     "component": "MONITOR_AGENT",
     "message": "Successfully normalized raw incident logs.",
-    "timestamp": "2026-10-16T07:10:23.108063+00:00"
+    "timestamp": "2026-10-16T08:07:09.035670+00:00"
    },
    {
     "component": "CLASSIFIER_AGENT",
     "message": "Confirmed operational category as: SCHEMA_DRIFT.",
-    "timestamp": "2026-10-16T07:10:23.215334+00:00"
+    "timestamp": "2026-10-16T08:07:09.090782+00:00"
    },
    {
     "component": "CLASSIFIER_AGENT",
     "message": "Route: Recovery (no Gemini needed), because a known column alias matches, so Recovery can fix it without Gemini.",
-    "timestamp": "2026-10-16T07:10:23.236900+00:00"
+    "timestamp": "2026-10-16T08:07:09.111742+00:00"
    },
    {
     "component": "RECOVERY_AGENT",
     "message": "Remediation generated: RECONFIGURE. Deterministic alias matched missing key 'country' to payload key 'nation'.",
-    "timestamp": "2026-10-16T07:10:23.292002+00:00"
+    "timestamp": "2026-10-16T08:07:09.158169+00:00"
    },
    {
     "component": "ACTUATOR",
     "message": "Executing remediation strategy: [RECONFIGURE]",
-    "timestamp": "2026-10-16T07:10:23.326443+00:00"
+    "timestamp": "2026-10-16T08:07:09.177169+00:00"
    },
    {
     "component": "ACTUATOR",
     "message": "Configuration version 1 verified ({'country_col': 'nation'}). Pipeline auto-remediated and saved 10 records.",
-    "timestamp": "2026-10-16T07:10:23.671434+00:00"
+    "timestamp": "2026-10-16T08:07:09.367528+00:00"
    }
   ]
  },
  "quarantine": [
   {
-   "quarantine_id": "qnt_7529ca8c",
+   "quarantine_id": "qnt_fac78610",
    "pipeline_id": "PIPELINE_B",
-   "run_id": "run_b_173b39",
+   "run_id": "run_b_c2399e",
    "record_type": "device_telemetry_aggregate",
    "raw_record": {
     "device_id": null,
@@ -724,12 +811,12 @@
    "validation_errors": [
     "Referential Integrity Violation: device_id is NULL"
    ],
-   "created_at": "2026-10-16T07:11:24.241074+00:00"
+   "created_at": "2026-10-16T08:08:50.200151+00:00"
   },
   {
-   "quarantine_id": "qnt_79ff4d48",
+   "quarantine_id": "qnt_353840cf",
    "pipeline_id": "PIPELINE_A",
-   "run_id": "run_a_4deb0a",
+   "run_id": "run_a_617edd",
    "record_type": "customer",
    "raw_record": {
     "customer_id": "tc_0041",
@@ -740,12 +827,12 @@
    "validation_errors": [
     "Duplicate Customer ID 'tc_0041' within batch"
    ],
-   "created_at": "2026-10-16T07:11:06.891355+00:00"
+   "created_at": "2026-10-16T08:08:23.669447+00:00"
   },
   {
-   "quarantine_id": "qnt_e04f22db",
+   "quarantine_id": "qnt_485d4359",
    "pipeline_id": "PIPELINE_A",
-   "run_id": "run_a_4b3187",
+   "run_id": "run_a_380814",
    "record_type": "customer",
    "raw_record": {
     "customer_id": "tc_0051",
@@ -756,12 +843,12 @@
    "validation_errors": [
     "Invalid email formatting on value 'john.doe_example.com'"
    ],
-   "created_at": "2026-10-16T07:11:03.500406+00:00"
+   "created_at": "2026-10-16T08:08:20.347756+00:00"
   },
   {
-   "quarantine_id": "qnt_a10cefc6",
+   "quarantine_id": "qnt_274c62a0",
    "pipeline_id": "PIPELINE_A",
-   "run_id": "run_a_8703e3",
+   "run_id": "run_a_409332",
    "record_type": "customer",
    "raw_record": {
     "customer_id": "tc_0005",
@@ -771,20 +858,20 @@
    "validation_errors": [
     "Missing field 'country'"
    ],
-   "created_at": "2026-10-16T07:10:51.481102+00:00"
+   "created_at": "2026-10-16T08:07:44.887256+00:00"
   }
  ],
  "escalations": [
   {
-   "timestamp": "2026-10-16T07:11:27.858932+00:00",
-   "incident_id": "inc_89fb632a",
+   "timestamp": "2026-10-16T08:08:53.752272+00:00",
+   "incident_id": "inc_be3d44f8",
    "reason": "Operational source table 'device_telemetry' does not exist on disk.",
    "summary": "The source table 'device_telemetry' does not exist.",
    "why": "There is no data to repair, so there is no safe automatic fix."
   },
   {
-   "timestamp": "2026-10-16T07:11:13.496554+00:00",
-   "incident_id": "inc_030a9118",
+   "timestamp": "2026-10-16T08:08:30.234798+00:00",
+   "incident_id": "inc_ab3f9e08",
    "reason": "Database Query Parse Error: no such column: status_code. Available columns in device_telemetry: ['log_id', 'device_id', 'timestamp', 'response_time']. Query:                  SELECT                      device_id,                      COUNT(log_id) as total_events,                     SUM(CASE WHEN status_code >= 400 THEN 1 ELSE 0 END) * 1.0 / COUNT(log_id) as error_rate,                     AVG(response_time) as avg_response_time                 FROM device_telemetry                 GROUP BY device_id",
    "summary": "The column 'status_code' is missing from the table 'device_telemetry'.",
    "why": "Gemini found no safe replacement for the missing data, so it refused to guess."

@@ -21,7 +21,7 @@ An advanced, production-grade SRE (Site Reliability Engineering) automation plat
 - **Hybrid Fault-Tolerance & Quarantine** — Row-level anomalies (bad email formats, duplicate IDs, null device IDs) are isolated per-row into a dedicated `quarantined_records` table. Healthy records are always ingested, and invalid records are logged for operator review — without crashing the pipeline.
 - **Pydantic v2 Validation** — All ingested customer records are validated via a typed `CustomerRecord` Pydantic model. Custom field validators handle type coercions (e.g., `5` → `"5"`), null checks, email format rules, and string normalizations before any database write.
 - **Dual-Database Architecture** — Runs locally on SQLite, and automatically switches to **Neon Postgres** when deployed to Vercel — zero code changes required.
-- **React Dashboard** — A React + Vite + TypeScript dashboard (`frontend/`) with light and dark themes, **Sign in with Google**, a read-only **Demo** tab (the app after all the test cases, recorded with real Gemini), a **live, branching** agent flow (it lights up only the path this incident took, as each agent finishes), an incident timeline with "Blocked by guard" badges, and a records view. Click any agent circle to see what it did in that run (e.g. Gemini's full root-cause text), download any incident as a **PDF or JSON report**, press **Try all** to run all 14 presets one after another (counts as one run for the viewer limit), read every escalation in plain words (what went wrong, why a person is needed), and search or filter the incident log by pipeline and outcome. Works on phones. Vercel builds and serves it too.
+- **React Dashboard** — A React + Vite + TypeScript dashboard (`frontend/`) with light and dark themes, **Sign in with Google**, a read-only **Demo** tab (the app after all the test cases, recorded with real Gemini), a **live, branching** agent flow (it lights up only the path this incident took, as each agent finishes), an incident timeline with "Blocked by guard" badges, and a records view. Click any agent circle to see what it did in that run (e.g. Gemini's full root-cause text), download any incident as a **PDF or JSON report**, press **Try all** to run all 15 presets one after another (counts as one run for the viewer limit), read every escalation in plain words (what went wrong, why a person is needed), and search or filter the incident log by pipeline and outcome. Works on phones. Vercel builds and serves it too.
 - **Vercel-Native Deployment** — Fully serverless deployment on Vercel's free tier with in-process healing (no background task limitations).
 
 ---
@@ -111,6 +111,7 @@ When a pipeline throws an exception, the telemetry interceptor captures the erro
 |:---|:---|:---:|:---|
 | Renamed column (country / email / id), wrong JSON shape | Monitor → Classifier → Recovery → Apply → Verify | 0 | Healed |
 | Two renamed columns | … → Verify → **back to Recovery** → Apply → Verify | 0 | Healed |
+| Broken JSON + wrapped records | Monitor → Classifier → RCA → Recovery (Gemini adds the missing `}`) → Verify fails (still wrapped) → **AI fix** (unwrap `customers`, dry run passes) → Apply → Verify | 3 | Healed |
 | Records wrapped in an object | … → Recovery (flatten rule) → Verify fails → **AI fix** (Gemini: unwrap `customers`, dry run passes) → Apply → Verify | 1 | Healed |
 | Broken JSON syntax | Monitor → Classifier → RCA → Recovery → Apply (Gemini adds only the missing `},`) → Verify | 2 | Healed: 9 rows loaded, the row with no country quarantined |
 | All device IDs empty | Monitor → Classifier → Recovery → Quarantine | 0 | Quarantined |
@@ -198,8 +199,8 @@ Validation errors are extracted per-row from `ValidationError.errors()`, strippe
 │
 ├── demo/snapshot.json              # Demo tab recording (made by scripts/make_demo_snapshot.py)
 ├── scripts/
-│   ├── measure.py                  # Measures the 14 presets with real Gemini, writes the README table
-│   └── make_demo_snapshot.py       # Records the 14 presets for the Demo tab
+│   ├── measure.py                  # Measures the 15 presets with real Gemini, writes the README table
+│   └── make_demo_snapshot.py       # Records the 15 presets for the Demo tab
 │
 ├── src/
 │   ├── database.py                 # Dual-database adapter (SQLite ↔ Postgres)
@@ -475,6 +476,7 @@ Open the dashboard and run these testing scenarios:
 | `case_drift_id.json` | **Failure → Self-Healed** | Primary key `customer_id` renamed to `id`, triggers `KeyError`. | Deterministic alias matcher maps `id` → `customer_id`, run `HEALED`, 10 rows saved. |
 | `case_drift_multi.json` | **Failure → Self-Healed** | Two drifts: `customer_id` → `id` **and** `email` → `user_email`. | Both mappings resolved in one run (two verification runs), run `HEALED`, 10 rows saved. *(Upload it; it is not in the dashboard preset list.)* |
 | `case_invalid_root.json` | **Failure → Self-Healed** | JSON root is a dictionary instead of a list. | Applies `flatten_root_dict: True` override to extract values as array. |
+| `case_broken_and_wrapped.json` | **Failure → Self-Healed (repair, then AI fix)** | One record lacks its closing `}` **and** the records sit inside `{"customers": [...]}`. | RCA explains it; Gemini adds only the `}`. The re-run fails because the records are still wrapped, so one AI fix unwraps them (dry run on a copy first). 10 rows saved, 3 Gemini calls. |
 | `case_wrapped_records.json` | **Failure → Self-Healed by an AI fix** | The 10 records sit inside `{"customers": [...]}`. | The flatten rule fails (it gives one wrong record). Verify then asks for an AI fix: Gemini proposes `unwrap 'customers'`, the dry run on a copy passes (10 records, no value changed, schema OK), the real re-run saves 10 rows. If Gemini proposes anything that loses or changes data, it is rejected and the incident is `ESCALATED`. |
 | `case_malformed_syntax.json` | **Failure → Healed (1 row quarantined)** | Row 5 is missing its closing `}` **and** its `country` field. | Gemini adds only the missing `},` (the JSON repair check blocks any invented value). The re-run then quarantines row 5 ("Missing field 'country'") and loads the other 9. If Gemini invents a country anyway, the repair is rejected and the incident is `ESCALATED`. |
 | `case_invalid_email.json` | **Partial → Quarantined** | One row has invalid email (`john.doe_example.com` missing `@`). | Pydantic validator catches it; bad row isolated to `quarantined_records`, remaining 9 rows ingested successfully. Run status: `QUARANTINED`. No agents run; the dashboard shows "Quarantined, no agents needed" (P3 data-quality warning, not counted as healed). |
@@ -542,7 +544,7 @@ The suite has **188 tests** and needs no Gemini key or network:
 - **Lockout and shared-limit tests** (`test_lockout_and_shared_limits.py`): wrong keys lock a visitor out (even the right key is refused until the window passes), a missing key is not counted, a faked `x-forwarded-for` can't dodge it locally; and with **two real server copies on one database** the run limit, lockout and Try all tokens are shared, and survive a restart.
 - **Incident filter tests** (`test_incident_filters.py`): filter by outcome (healed, quarantined, escalated, in progress), by pipeline, and by search text, together with paging; `%` and `_` are searched as normal letters; unknown values get `422`.
 - **Records paging tests** (`test_records_paging.py`): `/api/quarantine` and `/api/escalations` return one page newest first with the total in `X-Total-Count`; only the escalations on the page get their plain-English text; bad values get `422`.
-- **Agent path tests** (`test_agent_paths.py`): for each of the 14 presets, the exact path through the graph (including the retry loop), the number of Gemini calls, and the final result; Recovery's prompts include the RCA analysis; a field missing in some rows quarantines those rows, missing in every row is schema drift.
+- **Agent path tests** (`test_agent_paths.py`): for each of the 15 presets, the exact path through the graph (including the retry loop), the number of Gemini calls, and the final result; Recovery's prompts include the RCA analysis; a field missing in some rows quarantines those rows, missing in every row is schema drift.
 - **Crash tests** (`test_crash_escalates.py`): if healing crashes (a missing package, a broken actuator), the incident becomes ESCALATED with a "Healing crashed" audit line and a plain-English reason, instead of staying OPEN for ever; an already finished incident is left alone; a Gemini outage is handled by the agents themselves.
 - **Escalations-from-database tests** (`test_escalations_from_db.py`): the Escalations tab lists exactly the incidents with status ESCALATED (same as the Incident log's Escalated filter), no text file is written, escalations made without any agent are listed too, Clear history empties the list, and **two server copies on one database** show the same escalations.
 - **AI fix tests** (`test_ai_fix.py`): each allowed step reshapes without touching values, steps outside the list are refused, the original data is never changed; the dry run rejects a fix that loses records, drops or changes any value, leaves the schema broken or makes most rows invalid; through the real agents: a failed rule then a good AI fix heals with no junk rows, a rejected fix changes nothing and goes to a person, no usable answer goes to a person, the AI fix runs only once, a missing file never gets one, and a guard block is never followed by one.
@@ -603,7 +605,7 @@ Google id, email and name of people who sign in, to show who is signed in and to
 
 ### Recording the Demo tab
 
-The Demo tab shows a frozen recording of all 14 presets, made with real Gemini. Make it (again) with:
+The Demo tab shows a frozen recording of all 15 presets, made with real Gemini. Make it (again) with:
 ```powershell
 venv\Scripts\python.exe scripts/make_demo_snapshot.py
 ```
@@ -661,7 +663,7 @@ This project utilizes the **Google Gemini 3.5 Flash-Lite** (`gemini-3.5-flash-li
 - **Requests Per Minute (RPM)**: about 15 (reported for the 3.x Flash-Lite free tier)
 - **Requests Per Day (RPD)**: about 500 (reported for the 3.x Flash-Lite free tier)
 - Google no longer publishes these numbers per model and they change over time, so check your own key on the [AI Studio rate-limit page](https://aistudio.google.com/rate-limit).
-- One full run of the 14 presets uses only **about 6 Gemini calls**, because most presets are handled by rules.
+- One full run of the 15 presets uses only **about 9 Gemini calls**, because most presets are handled by rules.
 
 If these thresholds are exceeded, the API returns a `RESOURCE_EXHAUSTED` (HTTP 429) error, and the platform will gracefully transition the active incident status to `ESCALATED` to notify human operators.
 
@@ -670,13 +672,13 @@ If these thresholds are exceeded, the API returns a `RESOURCE_EXHAUSTED` (HTTP 4
 ## Measured Results
 
 The table below is written by `scripts/measure.py`, not by hand. The script starts a real local server
-(with a throw-away database), runs all 14 presets against it with real Gemini, records the result, the
+(with a throw-away database), runs all 15 presets against it with real Gemini, records the result, the
 path through the agent graph, the number of Gemini calls and the time for each one, and repeats the whole
 suite 3 times because Gemini can answer differently each time. It then replaces everything between the two
 markers with the new table, including the date and the model name. To refresh it:
 
 ```powershell
-venv\Scripts\python.exe scripts/measure.py              # 3 runs, updates this table (about 6 Gemini calls per run)
+venv\Scripts\python.exe scripts/measure.py              # 3 runs, updates this table (about 9 Gemini calls per run)
 venv\Scripts\python.exe scripts/measure.py --runs 1     # cheaper: the free tier allows only about 20 requests a day
 venv\Scripts\python.exe scripts/measure.py --no-write   # print the table without touching README.md
 ```
@@ -684,24 +686,25 @@ venv\Scripts\python.exe scripts/measure.py --no-write   # print the table withou
 <!-- MEASURED-RESULTS:START (written by scripts/measure.py, do not edit by hand) -->
 _Measured 2026-10-16 (UTC) with `gemini-3.5-flash-lite`, real local server, real Gemini, 1 run. Generated by `scripts/measure.py`; raw numbers in `scripts/measure_last_run.json`._
 
-**14/14 presets behaved as expected in 1 of 1 runs.**
+**15/15 presets behaved as expected in 1 of 1 runs.**
 
 | Preset | Result | Path through the graph | Gemini calls | Time, median (range) | As expected |
 |:---|:---|:---|:---:|:---:|:---:|
-| `case_healthy.json` | success | no agents (validation only) | 0 | 0.35 s (0.35 s–0.35 s) | 1/1 |
-| `case_drift_country.json` | healed | Monitor → Classifier → Recovery → Apply → Verify | 0 | 3.2 s (3.2 s–3.2 s) | 1/1 |
-| `case_drift_email.json` | healed | Monitor → Classifier → Recovery → Apply → Verify | 0 | 1.3 s (1.3 s–1.3 s) | 1/1 |
-| `case_drift_id.json` | healed | Monitor → Classifier → Recovery → Apply → Verify | 0 | 1.3 s (1.3 s–1.3 s) | 1/1 |
-| `case_drift_multi.json` | healed | Monitor → Classifier → Recovery → Apply → Verify → Recovery → Apply → Verify | 0 | 1.8 s (1.8 s–1.8 s) | 1/1 |
-| `case_invalid_root.json` | healed | Monitor → Classifier → Recovery → Apply → Verify | 0 | 1.4 s (1.4 s–1.4 s) | 1/1 |
-| `case_malformed_syntax.json` | healed + 1 quarantined | Monitor → Classifier → RCA → Recovery → Apply → Verify | 2 | 14.7 s (14.7 s–14.7 s) | 1/1 |
-| `case_wrapped_records.json` | healed | Monitor → Classifier → Recovery → Apply → Verify → AI fix (dry run) → Apply → Verify | 1 | 6.6 s (6.6 s–6.6 s) | 1/1 |
-| `case_invalid_email.json` | quarantined | no agents (validation only) | 0 | 0.26 s (0.26 s–0.26 s) | 1/1 |
-| `case_duplicate_ids.json` | quarantined | no agents (validation only) | 0 | 0.28 s (0.28 s–0.28 s) | 1/1 |
+| `case_healthy.json` | success | no agents (validation only) | 0 | 0.17 s (0.17 s–0.17 s) | 1/1 |
+| `case_drift_country.json` | healed | Monitor → Classifier → Recovery → Apply → Verify | 0 | 1.7 s (1.7 s–1.7 s) | 1/1 |
+| `case_drift_email.json` | healed | Monitor → Classifier → Recovery → Apply → Verify | 0 | 0.62 s (0.62 s–0.62 s) | 1/1 |
+| `case_drift_id.json` | healed | Monitor → Classifier → Recovery → Apply → Verify | 0 | 0.65 s (0.65 s–0.65 s) | 1/1 |
+| `case_drift_multi.json` | healed | Monitor → Classifier → Recovery → Apply → Verify → Recovery → Apply → Verify | 0 | 1.3 s (1.3 s–1.3 s) | 1/1 |
+| `case_invalid_root.json` | healed | Monitor → Classifier → Recovery → Apply → Verify | 0 | 0.56 s (0.56 s–0.56 s) | 1/1 |
+| `case_malformed_syntax.json` | healed + 1 quarantined | Monitor → Classifier → RCA → Recovery → Apply → Verify | 2 | 8.9 s (8.9 s–8.9 s) | 1/1 |
+| `case_broken_and_wrapped.json` | healed | Monitor → Classifier → RCA → Recovery → Apply → Verify → AI fix (dry run) → Apply → Verify | 3 | 24.5 s (24.5 s–24.5 s) | 1/1 |
+| `case_wrapped_records.json` | healed | Monitor → Classifier → Recovery → Apply → Verify → AI fix (dry run) → Apply → Verify | 1 | 11.8 s (11.8 s–11.8 s) | 1/1 |
+| `case_invalid_email.json` | quarantined | no agents (validation only) | 0 | 0.27 s (0.27 s–0.27 s) | 1/1 |
+| `case_duplicate_ids.json` | quarantined | no agents (validation only) | 0 | 0.22 s (0.22 s–0.22 s) | 1/1 |
 | `healthy.db` | success | no agents (validation only) | 0 | 0.16 s (0.16 s–0.16 s) | 1/1 |
-| `sql_error.db` | escalated | Monitor → Classifier → RCA → Recovery → Escalate | 2 | 9.4 s (9.4 s–9.4 s) | 1/1 |
-| `referential_integrity.db` | quarantined (all rows) | Monitor → Classifier → Recovery → Apply → Verify | 0 | 0.48 s (0.48 s–0.48 s) | 1/1 |
-| `missing_table.db` | escalated | Monitor → Classifier → RCA → Escalate | 1 | 3.1 s (3.1 s–3.1 s) | 1/1 |
+| `sql_error.db` | escalated | Monitor → Classifier → RCA → Recovery → Escalate | 2 | 22.0 s (22.0 s–22.0 s) | 1/1 |
+| `referential_integrity.db` | quarantined (all rows) | Monitor → Classifier → Recovery → Apply → Verify | 0 | 0.42 s (0.42 s–0.42 s) | 1/1 |
+| `missing_table.db` | escalated | Monitor → Classifier → RCA → Escalate | 1 | 4.2 s (4.2 s–4.2 s) | 1/1 |
 
 _Time is the wall time of the API request, including the healing. Gemini calls are counted at the LangChain level (a retry inside one call is not counted). "As expected" means the result, the path and the number of Gemini calls all match the design in `test/test_agent_paths.py`._
 <!-- MEASURED-RESULTS:END -->
