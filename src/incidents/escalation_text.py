@@ -41,6 +41,9 @@ def explain(reason: str, recovery_action: str | None = None, audit_messages: lis
     elif m := re.search(r"table '(\w+)' does not exist|no such table:\s*(\w+)", raw, re.I):
         summary = f"The source table '{m.group(1) or m.group(2)}' does not exist."
         why = "There is no data to repair, so there is no safe automatic fix."
+    elif re.search(r"must contain a JSON array|root_structure", raw, re.I):
+        summary = "The JSON file has the wrong shape: the records are not a plain list."
+        why = "No automatic step could reshape it safely, so a person must check the file."
     elif re.search(r"Invalid JSON|JSONDecodeError|Expecting .* delimiter", raw, re.I):
         line = re.search(r"line (\d+)", raw)
         summary = f"The JSON file is broken{f' near line {line.group(1)}' if line else ''} (a bracket, comma or value is missing)."
@@ -58,6 +61,12 @@ def explain(reason: str, recovery_action: str | None = None, audit_messages: lis
 
     # A safety check that blocked an AI fix is the most precise "why".
     for text in [recovery_action or "", *(audit_messages or [])]:
+        if m := re.match(r"Dry run rejected the fix:\s*(.*?)\.\s*The data was not changed", text):
+            why = f"Gemini proposed a fix, but the dry run on a copy rejected it ({m.group(1)}), so the data was not changed."
+            break
+        if m := re.match(r"No AI fix was applied:\s*(.*?)\.\s*The data was not changed", text):
+            why = f"No rule fits, and no AI fix was applied ({m.group(1)}), so a person must look at it."
+            break
         if m := re.match(r"Healing crashed:\s*(\w+)", text):
             why = f"The healing itself crashed ({m.group(1)}), so a person was asked to look at it instead."
             break

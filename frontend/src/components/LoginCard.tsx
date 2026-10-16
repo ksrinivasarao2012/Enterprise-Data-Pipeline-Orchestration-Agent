@@ -212,7 +212,7 @@ export function LoginCard({ config, onLoggedIn, theme, onToggleTheme }: Props) {
           )}
           <p className="border-t border-line pt-4 text-[13px] text-muted">
             We keep only your name and email, to show who is signed in and to keep your runs separate. After signing in, the
-            Demo tab shows the app after all 13 test cases.
+            Demo tab shows the app after all the test cases.
           </p>
         </section>
       </main>

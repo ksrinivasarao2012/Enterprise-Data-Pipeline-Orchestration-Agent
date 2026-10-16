@@ -1,33 +1,82 @@
 import { useId, type KeyboardEvent as ReactKeyboardEvent } from 'react';
-import type { FlowNode, NodeState } from '../lib/flow';
+import type { FlowEdge, FlowNode, NodeState } from '../lib/flow';
 import { useMediaQuery, useReducedMotion } from '../hooks/useMediaQuery';
 
 /**
- * The agent flow drawn as a loop: Monitor → Classifier → RCA along the top,
- * down to Recovery, then back along the bottom through Verify to the outcome.
- * Lit edges carry moving "data" particles; a blocked node pulses red.
+ * The agent graph drawn as it really branches (CHANGES.md section 34). The main path runs along
+ * the top (Monitor → Classifier → Recovery → Verify → Healed); the side paths (RCA, the AI fix
+ * and Escalate) sit below. Only the arrows this incident took light up and carry moving
+ * "data" particles; a blocked node pulses red.
  */
 
 type Pt = { x: number; y: number };
+type Layout = { w: number; h: number; pts: Record<string, Pt>; below: Record<string, boolean>; side: boolean };
 
-// Wide: a U-shaped loop. Narrow: a single column.
-const WIDE = {
-  w: 780,
-  h: 330,
-  pts: [
-    { x: 110, y: 80 },
-    { x: 390, y: 80 },
-    { x: 670, y: 80 },
-    { x: 670, y: 245 },
-    { x: 390, y: 245 },
-    { x: 110, y: 245 },
-  ] as Pt[],
+// Wide: two rows. Narrow (phones): two lanes, labels beside the circles.
+const WIDE: Layout = {
+  w: 880,
+  h: 392,
+  side: false,
+  pts: {
+    MONITOR_AGENT: { x: 70, y: 110 },
+    CLASSIFIER_AGENT: { x: 210, y: 110 },
+    RECOVERY_AGENT: { x: 450, y: 110 },
+    ACTUATOR: { x: 630, y: 110 },
+    FINAL: { x: 800, y: 110 },
+    RCA_AGENT: { x: 330, y: 265 },
+    AI_FIX_AGENT: { x: 630, y: 265 },
+    ESCALATION: { x: 800, y: 265 },
+  },
+  below: { RCA_AGENT: true, AI_FIX_AGENT: true, ESCALATION: true },
 };
-const NARROW = {
-  w: 340,
-  h: 610,
-  pts: [0, 1, 2, 3, 4, 5].map((i) => ({ x: 52, y: 50 + i * 102 })) as Pt[],
+const NARROW: Layout = {
+  w: 400,
+  h: 830,
+  side: true,
+  pts: {
+    MONITOR_AGENT: { x: 40, y: 44 },
+    CLASSIFIER_AGENT: { x: 40, y: 150 },
+    RCA_AGENT: { x: 200, y: 262 },
+    RECOVERY_AGENT: { x: 40, y: 370 },
+    ACTUATOR: { x: 40, y: 510 },
+    AI_FIX_AGENT: { x: 200, y: 600 },
+    FINAL: { x: 40, y: 700 },
+    ESCALATION: { x: 200, y: 790 },
+  },
+  below: {},
 };
+
+/** A straight (or gently bent) arrow between two circles, trimmed to their edges. */
+function link(a: Pt, b: Pt, shift = 0, bend = 0) {
+  const dx = b.x - a.x;
+  const dy = b.y - a.y;
+  const len = Math.hypot(dx, dy) || 1;
+  const u = { x: dx / len, y: dy / len };
+  const n = { x: -u.y, y: u.x };
+  const s = { x: a.x + u.x * 35 + n.x * shift, y: a.y + u.y * 35 + n.y * shift };
+  const e = { x: b.x - u.x * 35 + n.x * shift, y: b.y - u.y * 35 + n.y * shift };
+  const mid = { x: (s.x + e.x) / 2 + n.x * bend, y: (s.y + e.y) / 2 + n.y * bend };
+  const d = bend ? `M ${s.x} ${s.y} Q ${mid.x} ${mid.y} ${e.x} ${e.y}` : `M ${s.x} ${s.y} L ${e.x} ${e.y}`;
+  return { d, mid, n };
+}
+
+function edgeGeometry(L: Layout, from: string, to: string) {
+  const a = L.pts[from];
+  const b = L.pts[to];
+  // RCA straight to a person: route around the AI fix circle instead of through it.
+  if (from === 'RCA_AGENT' && to === 'ESCALATION') {
+    if (!L.side) {
+      const y = 366;
+      return { d: `M ${a.x} ${a.y + 35} C ${a.x} ${y}, ${a.x} ${y}, ${a.x + 40} ${y} L ${b.x - 40} ${y} C ${b.x} ${y}, ${b.x} ${y}, ${b.x} ${b.y + 35}`, mid: { x: 480, y: y + 14 } };
+    }
+    return { d: `M ${a.x + 24} ${a.y + 24} C ${a.x + 180} ${a.y + 40}, ${b.x + 180} ${b.y - 30}, ${b.x + 24} ${b.y - 24}`, mid: { x: a.x + 150, y: (a.y + b.y) / 2 } };
+  }
+  // Verify and the AI fix talk both ways: two parallel arrows.
+  const pair = (from === 'ACTUATOR' && to === 'AI_FIX_AGENT') || (from === 'AI_FIX_AGENT' && to === 'ACTUATOR');
+  const g = link(a, b, pair ? 8 : 0);
+  const off = pair ? 24 : 16;
+  return { d: g.d, mid: { x: g.mid.x + g.n.x * off, y: g.mid.y + g.n.y * off + 4 } };
+}
 
 const STROKE: Record<NodeState, string> = {
   idle: 'stroke-line',
@@ -66,20 +115,12 @@ const PARTICLE: Record<NodeState, string> = {
   quarantined: 'fill-warn',
 };
 
-function edgePath(a: Pt, b: Pt, wide: boolean, i: number): string {
-  // The turn from RCA down to Recovery bows outwards on the wide layout.
-  if (wide && i === 2) return `M ${a.x + 34} ${a.y} C ${a.x + 110} ${a.y}, ${b.x + 110} ${b.y}, ${b.x + 34} ${b.y}`;
-  if (wide) {
-    const dir = b.x > a.x ? 1 : -1;
-    return `M ${a.x + dir * 36} ${a.y} L ${b.x - dir * 36} ${b.y}`;
-  }
-  return `M ${a.x} ${a.y + 36} L ${b.x} ${b.y - 36}`;
-}
-
 const isOn = (s: NodeState) => s !== 'idle' && s !== 'skipped';
 
 interface Props {
   nodes: FlowNode[];
+  /** The arrows, with the ones this incident took marked `lit`. */
+  edges?: FlowEdge[];
   /** Accessible summary of what the graph shows. */
   label: string;
   /** The circle the user clicked (its details show below the graph). */
@@ -90,28 +131,16 @@ interface Props {
   loops?: number;
 }
 
-export function FlowGraph({ nodes, label, picked = null, onPick, loops = 0 }: Props) {
+export function FlowGraph({ nodes, edges = [], label, picked = null, onPick, loops = 0 }: Props) {
   const wide = useMediaQuery('(min-width: 560px)');
   const reduced = useReducedMotion();
   const uid = useId().replace(/:/g, '');
   const L = wide ? WIDE : NARROW;
-
-  // The graph branches, so a finished run can skip steps (e.g. no RCA when a rule knew the fix).
-  // The lit path runs from the first to the last step that ran and passes over skipped ones.
-  const onIdx = nodes.map((n, i) => (isOn(n.state) ? i : -1)).filter((i) => i >= 0);
-  const firstOn = onIdx.length ? onIdx[0] : Infinity;
-  const lastOn = onIdx.length ? onIdx[onIdx.length - 1] : -1;
-  const edges = L.pts.slice(0, -1).map((a, i) => {
-    const from = nodes[i];
-    const to = nodes[i + 1];
-    const lit = firstOn <= i && lastOn >= i + 1 && from.state !== 'idle' && to.state !== 'idle';
-    return { d: edgePath(a, L.pts[i + 1], wide, i), lit, state: from.state === 'blocked' ? 'blocked' : to.state === 'healed' ? 'healed' : to.state === 'escalated' ? 'escalated' : 'lit' } as const;
-  });
-
-  // Faint return path from the outcome back to Monitor: the "loop" in self-healing.
-  const back = wide
-    ? `M ${L.pts[5].x - 34} ${L.pts[5].y} C ${L.pts[5].x - 110} ${L.pts[5].y}, ${L.pts[0].x - 110} ${L.pts[0].y}, ${L.pts[0].x - 34} ${L.pts[0].y}`
-    : null;
+  const drawn = edges
+    .filter((e) => L.pts[e.from] && L.pts[e.to])
+    .map((e) => ({ ...e, ...edgeGeometry(L, e.from, e.to) }));
+  const rec = L.pts.RECOVERY_AGENT;
+  const ver = L.pts.ACTUATOR;
 
   return (
     <svg
@@ -130,26 +159,31 @@ export function FlowGraph({ nodes, label, picked = null, onPick, loops = 0 }: Pr
         </filter>
       </defs>
 
-      {back && <path d={back} fill="none" className="stroke-line" strokeWidth={1.5} strokeDasharray="3 6" />}
-
       {/* Retry loop: Verify found another problem and sent the incident back to Recovery. */}
-      {wide && loops > 0 && (
+      {loops > 0 && (
         <g aria-hidden="true" data-loop={loops}>
           <path
-            d={`M ${L.pts[4].x + 26} ${L.pts[4].y - 24} C ${L.pts[4].x + 90} ${L.pts[4].y - 78}, ${L.pts[3].x - 90} ${L.pts[3].y - 78}, ${L.pts[3].x - 26} ${L.pts[3].y - 24}`}
+            d={wide
+              ? `M ${ver.x - 24} ${ver.y + 24} C ${ver.x - 50} ${ver.y + 62}, ${rec.x + 50} ${rec.y + 62}, ${rec.x + 24} ${rec.y + 24}`
+              : `M ${ver.x - 30} ${ver.y - 16} C ${ver.x - 70} ${ver.y - 50}, ${rec.x - 70} ${rec.y + 50}, ${rec.x - 30} ${rec.y + 16}`}
             fill="none"
             className="stroke-info"
             strokeWidth={1.75}
             strokeDasharray="5 5"
           />
-          <text x={(L.pts[3].x + L.pts[4].x) / 2} y={L.pts[3].y - 66} textAnchor="middle" className="fill-info font-sans text-[12px] font-medium">
+          <text
+            x={wide ? (rec.x + ver.x) / 2 : rec.x + 44}
+            y={wide ? rec.y + 40 : (rec.y + ver.y) / 2 + 4}
+            textAnchor={wide ? 'middle' : 'start'}
+            className="fill-info font-sans text-[12px] font-medium"
+          >
             ↺ retry {loops > 1 ? `×${loops}` : ''}
           </text>
         </g>
       )}
 
-      {edges.map((e, i) => (
-        <g key={i}>
+      {drawn.map((e) => (
+        <g key={`${e.from}>${e.to}`} data-edge={`${e.from}>${e.to}`} data-lit={e.lit ? 'true' : 'false'}>
           <path d={e.d} fill="none" className="stroke-line" strokeWidth={2} />
           <path
             d={e.d}
@@ -162,6 +196,11 @@ export function FlowGraph({ nodes, label, picked = null, onPick, loops = 0 }: Pr
             className={`${STROKE[e.state]} transition-[stroke-dashoffset] duration-500 ease-out dark:[filter:var(--glow)]`}
             style={{ ['--glow' as string]: `url(#glow-${uid})` }}
           />
+          {wide && e.label && (
+            <text x={e.mid.x} y={e.mid.y} textAnchor="middle" className={`font-sans text-[11px] ${e.lit ? 'fill-muted' : 'fill-faint'}`}>
+              {e.label}
+            </text>
+          )}
           {e.lit &&
             !reduced &&
             [0, 0.55, 1.1].map((delay) => (
@@ -173,15 +212,17 @@ export function FlowGraph({ nodes, label, picked = null, onPick, loops = 0 }: Pr
         </g>
       ))}
 
-      {nodes.map((n, i) => {
-        const p = L.pts[i];
+      {nodes.map((n) => {
+        const p = L.pts[n.key];
+        if (!p) return null;
         const pulse = !reduced && (n.active || n.state === 'blocked');
-        const labelX = wide ? p.x : p.x + 52;
-        const labelY = wide ? (i < 3 ? p.y - 62 : p.y + 58) : p.y - 4;
-        const anchor = wide ? 'middle' : 'start';
+        const labelX = L.side ? p.x + 44 : p.x;
+        const labelY = L.side ? p.y - 4 : L.below[n.key] ? p.y + 56 : p.y - 62;
+        const anchor = L.side ? 'start' : 'middle';
         return (
           <g
             key={n.key}
+            data-state={n.state}
             className={`${onPick ? 'group cursor-pointer outline-none' : ''} ${n.state === 'skipped' ? 'opacity-45' : ''}`}
             {...(onPick && {
               role: 'button',
@@ -258,7 +299,7 @@ function NodeGlyph({ n, x, y }: { n: FlowNode; x: number; y: number }) {
       </g>
     );
   }
-  if (n.state === 'escalated') {
+  if (n.num === '!' || n.state === 'escalated') {
     return (
       <text x={x} y={y + 7} textAnchor="middle" className={`${cls} font-display text-[24px]`}>
         !
@@ -267,7 +308,7 @@ function NodeGlyph({ n, x, y }: { n: FlowNode; x: number; y: number }) {
   }
   return (
     <text x={x} y={y + 5} textAnchor="middle" className={`${cls} font-mono text-[14px] font-medium`}>
-      {n.num.padStart(2, '0')}
+      {/^\d+$/.test(n.num) ? n.num.padStart(2, '0') : n.num}
     </text>
   );
 }

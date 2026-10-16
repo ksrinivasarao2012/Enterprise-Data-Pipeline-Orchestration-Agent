@@ -56,6 +56,65 @@ class CustomerRecord(BaseModel):
         return str(v).strip() if v is not None else ""
 
 
+BASELINE_MAPPING = {
+    "id_col": "customer_id",
+    "name_col": "name",
+    "email_col": "email",
+    "country_col": "country",
+}
+
+
+def expected_columns(schema_mapping: Dict[str, str]) -> list:
+    return [schema_mapping["id_col"], schema_mapping["name_col"], schema_mapping["email_col"], schema_mapping["country_col"]]
+
+
+def check_schema(raw_data: list, schema_mapping: Dict[str, str], pipeline_id: str = "PIPELINE_A") -> None:
+    """Schema drift = a column is missing from EVERY row (it was renamed or removed): raises KeyError.
+    A field missing from only SOME rows is a problem with those rows, so they are quarantined
+    instead (CHANGES.md section 23). Pure: no database, so the AI-fix dry run can use it too."""
+    expected = expected_columns(schema_mapping)
+    rows = [item for item in raw_data if isinstance(item, dict)]
+    for expected_key in expected:
+        if rows and all(expected_key not in item for item in rows):
+            actual = list(rows[0].keys())
+            sig = generate_error_signature(pipeline_id, "KeyError", expected_key)
+            raise KeyError(
+                f"[ErrorSignature: {pipeline_id}|KeyError|{expected_key}|{sig}] Expected: {expected} | Found: {actual}"
+            )
+
+
+def validate_row(item, schema_mapping: Dict[str, str], seen_ids: set):
+    """Checks one row. Returns (item, validated_record or None, row_errors). Pure: no database."""
+    row_errors = []
+    if not isinstance(item, dict):
+        item = {"value": item}
+    for expected_key in expected_columns(schema_mapping):
+        if expected_key not in item:
+            row_errors.append(f"Missing field '{expected_key}'")
+    mapped_item = {
+        "customer_id": item.get(schema_mapping["id_col"]),
+        "name": item.get(schema_mapping["name_col"]),
+        "email": item.get(schema_mapping["email_col"]),
+        "country": item.get(schema_mapping["country_col"]),
+    }
+    validated_record = None
+    try:
+        if not row_errors:  # a row with a missing field is already bad; don't add more noise
+            validated_record = CustomerRecord(**mapped_item)
+    except ValidationError as e:
+        for err in e.errors():
+            msg = err["msg"]
+            if msg.startswith("Value error, "):
+                msg = msg[len("Value error, "):]
+            row_errors.append(msg)
+    if validated_record is not None:
+        if validated_record.customer_id in seen_ids:
+            row_errors.append(f"Duplicate Customer ID '{validated_record.customer_id}' within batch")
+        else:
+            seen_ids.add(validated_record.customer_id)
+    return item, validated_record, row_errors
+
+
 class PipelineA:
     """Workload: Batch File Ingestion (Customers JSON -> Operational DB)"""
     def __init__(self):
@@ -83,12 +142,7 @@ class PipelineA:
         TelemetryIncidentCreator.register_start(run_id, self.pipeline_id)
         
         # Baseline column mapping
-        schema_mapping = {
-            "id_col": "customer_id",
-            "name_col": "name",
-            "email_col": "email",
-            "country_col": "country",
-        }
+        schema_mapping = dict(BASELINE_MAPPING)
         
         # Persistent overrides from DB
         active_db_overrides = get_active_pipeline_config(self.pipeline_id)
@@ -179,92 +233,45 @@ class PipelineA:
             logger.info("Validating structural constraints & parsing values", pipeline_id=self.pipeline_id)
             records_written = 0
             valid_rows = []
-            quarantined_count = 0
-            
+            bad_rows = []  # (item, errors)
+
             with get_db_connection("operational_db") as conn:
                 cur = conn.cursor()
                 seen_ids_in_batch = set()
-                
-                expected = [
-                    schema_mapping["id_col"],
-                    schema_mapping["name_col"],
-                    schema_mapping["email_col"],
-                    schema_mapping["country_col"],
-                ]
-                # Schema drift = a column is missing from EVERY row (it was renamed or removed).
-                # A field missing from only SOME rows is a problem with those rows, so they are
-                # quarantined below instead (CHANGES.md section 23).
-                rows = [item for item in raw_data if isinstance(item, dict)]
-                for expected_key in expected:
-                    if rows and all(expected_key not in item for item in rows):
-                        actual = list(rows[0].keys())
-                        sig = generate_error_signature(self.pipeline_id, "KeyError", expected_key)
-                        raise KeyError(
-                            f"[ErrorSignature: {self.pipeline_id}|KeyError|{expected_key}|{sig}] Expected: {expected} | Found: {actual}"
-                        )
+                check_schema(raw_data, schema_mapping, self.pipeline_id)
 
-                for idx, item in enumerate(raw_data):
-                    row_errors = []
-                    if not isinstance(item, dict):
-                        item = {"value": item}
-                    for expected_key in expected:
-                        if expected_key not in item:
-                            row_errors.append(f"Missing field '{expected_key}'")
-
-                    # 1. Map raw item keys using schema_mapping configuration
-                    mapped_item = {
-                        "customer_id": item.get(schema_mapping["id_col"]),
-                        "name": item.get(schema_mapping["name_col"]),
-                        "email": item.get(schema_mapping["email_col"]),
-                        "country": item.get(schema_mapping["country_col"]),
-                    }
-                    
-                    # 2. Run Pydantic validation
-                    validated_record = None
-                    try:
-                        if not row_errors:  # a row with a missing field is already bad; don't add more noise
-                            validated_record = CustomerRecord(**mapped_item)
-                    except ValidationError as e:
-                        for err in e.errors():
-                            msg = err["msg"]
-                            if msg.startswith("Value error, "):
-                                msg = msg[len("Value error, "):]
-                            row_errors.append(msg)
-                    
-                    # 3. Perform stateful checks if Pydantic validation passes
-                    if validated_record:
-                        p_id = validated_record.customer_id
-                        
-                        # Database Duplicate Check (if simulated)
-                        if simulate_failure_type == "DUPLICATE":
-                            cur.execute("SELECT 1 FROM customers WHERE customer_id = ?", (p_id,))
-                            if cur.fetchone():
-                                row_errors.append(f"Customer ID '{p_id}' already exists in database")
-                        
-                        # Batch Duplicate Check
-                        if p_id in seen_ids_in_batch:
-                            row_errors.append(f"Duplicate Customer ID '{p_id}' within batch")
-                        else:
-                            seen_ids_in_batch.add(p_id)
-                            
+                for item in raw_data:
+                    item, validated_record, row_errors = validate_row(item, schema_mapping, seen_ids_in_batch)
+                    # Database duplicate check (simulation only)
+                    if validated_record and simulate_failure_type == "DUPLICATE":
+                        cur.execute("SELECT 1 FROM customers WHERE customer_id = ?", (validated_record.customer_id,))
+                        if cur.fetchone():
+                            row_errors.append(f"Customer ID '{validated_record.customer_id}' already exists in database")
                     if row_errors:
-                        # Quarantine the row record
-                        from src.services.quarantine_service import QuarantineService
-                        QuarantineService.quarantine_record(
-                            pipeline_id=self.pipeline_id,
-                            run_id=run_id,
-                            record_type="customer",
-                            raw_record=item,
-                            validation_errors=row_errors
-                        )
-                        quarantined_count += 1
+                        bad_rows.append((item, row_errors))
                     else:
                         valid_rows.append(validated_record)
-            
+
+            quarantined_count = len(bad_rows)
+            # A verification run (throw_on_error) whose rows ALL fail is a failed fix, not a
+            # data-quality result: raise without writing quarantine rows, so a failed attempt
+            # never leaves junk in the quarantine table (CHANGES.md section 34).
+            if not (throw_on_error and bad_rows and not valid_rows):
+                from src.services.quarantine_service import QuarantineService
+                for item, row_errors in bad_rows:
+                    QuarantineService.quarantine_record(
+                        pipeline_id=self.pipeline_id,
+                        run_id=run_id,
+                        record_type="customer",
+                        raw_record=item,
+                        validation_errors=row_errors
+                    )
+
             # If all rows failed, throw ValueError to register run as FAILED
             if quarantined_count > 0 and not valid_rows:
+                where = "" if throw_on_error else " and were quarantined"
                 raise ValueError(
-                    f"Data Quality Violation: All {quarantined_count} customer rows failed validation and were quarantined."
+                    f"Data Quality Violation: All {quarantined_count} customer rows failed validation{where}."
                 )
                 
             # Insert valid rows

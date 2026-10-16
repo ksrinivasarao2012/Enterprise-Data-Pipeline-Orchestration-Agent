@@ -8,7 +8,7 @@ import { Dashboard } from './Dashboard';
 type State = { kind: 'loading' } | { kind: 'missing' } | { kind: 'error'; message: string } | { kind: 'ready'; snap: DemoSnapshot };
 
 /**
- * Demo tab (CHANGES.md section 32): the app as it looks after all 13 test cases, from a frozen
+ * Demo tab (CHANGES.md section 32): the app as it looks after all the test cases, from a frozen
  * recording made with real Gemini. Read-only: nothing here runs, clears or changes anything,
  * and it never mixes with anyone's own runs.
  */

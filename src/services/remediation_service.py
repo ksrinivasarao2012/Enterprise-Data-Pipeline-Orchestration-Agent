@@ -186,7 +186,7 @@ class RemediationService:
         if action == "QUARANTINE":
             return {"quarantined": True}
 
-        if action == "RECONFIGURE" and not cls.validate_fix_schema(pipeline_id, params):
+        if action in ("RECONFIGURE", "AI_FIX") and params and not cls.validate_fix_schema(pipeline_id, params):
             logger.warning("Proposed configuration rejected during validation", incident_id=incident_id)
             return {"blocked": "the proposed configuration failed validation"}
 
@@ -195,13 +195,15 @@ class RemediationService:
             if blocked:
                 return {"blocked": blocked}
 
-        if action not in ("RECONFIGURE", "REPAIR_FILE", "RETRY"):
+        # AI_FIX: the AI-fix agent already wrote the fixed copy of the file (it passed the dry
+        # run, CHANGES.md section 34); this is the real run with any column fixes found so far.
+        if action not in ("RECONFIGURE", "REPAIR_FILE", "RETRY", "AI_FIX"):
             return {"blocked": f"unknown action {action}"}
 
         try:
             rows = cls._run_pipeline(
                 pipeline_id, source_path, original_filename, run_id,
-                schema_mapping_override=params if (action == "RECONFIGURE" and pipeline_id == "PIPELINE_A") else None,
+                schema_mapping_override=(params or None) if (action in ("RECONFIGURE", "AI_FIX") and pipeline_id == "PIPELINE_A") else None,
                 sql_override=params.get("sql_override") if (action == "RECONFIGURE" and pipeline_id == "PIPELINE_B") else None,
             )
         except Exception as e:
@@ -274,6 +276,9 @@ class RemediationService:
                 reset_pipeline_configs(pipeline_id)
             except Exception:
                 pass
+        elif action == "AI_FIX":
+            cls._mark_healed(incident_id, run_id,
+                             f"Healed by an AI fix that passed a dry run on a copy. Re-run saved {rows} records.")
         else:
             cls._mark_healed(incident_id, run_id, f"Auto-remediation successful. Re-run saved {rows} records.")
 

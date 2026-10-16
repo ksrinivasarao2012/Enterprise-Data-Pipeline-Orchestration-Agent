@@ -1,7 +1,7 @@
 // Where the dashboard reads its data from (CHANGES.md section 32).
 //
 //   live -> the API: your own runs (or everyone's, for the admin)
-//   demo -> a frozen recording of all 13 presets (demo/snapshot.json, made with real Gemini by
+//   demo -> a frozen recording of all the presets (demo/snapshot.json, made with real Gemini by
 //           scripts/make_demo_snapshot.py), filtered and paged here in the browser
 //
 // The same components show both, so the Demo tab looks exactly like the real app.

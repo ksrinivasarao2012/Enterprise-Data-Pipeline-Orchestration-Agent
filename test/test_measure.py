@@ -1,5 +1,5 @@
 """
-scripts/measure.py (CHANGES.md section 28): the script that measures the 13 presets and writes the
+scripts/measure.py (CHANGES.md section 28): the script that measures the 14 presets and writes the
 README table. Real Gemini cannot be used in tests, so the whole machinery is run against a real
 HTTP server with a fake Gemini, which proves the expectations, the counting, the table and the
 README update work. The real numbers come from running the script itself.
@@ -26,8 +26,8 @@ BRACKET_ONLY = BROKEN.replace('"yuki.tanaka@example.com"\n', '"yuki.tanaka@examp
 
 # ---------------------------------------------------------------- pure helpers
 
-def test_expected_table_has_the_13_presets_with_real_files():
-    assert len(measure.EXPECTED) == 13
+def test_expected_table_has_the_14_presets_with_real_files():
+    assert len(measure.EXPECTED) == 14
     for p in measure.EXPECTED:
         folder = "pipeline_A" if p.pipe == "a" else "pipeline_B"
         assert os.path.exists(os.path.join(ROOT, "test_data", folder, p.case)), p.case
@@ -71,13 +71,13 @@ def test_judge_names_each_kind_of_difference():
     assert measure.judge(p, {**good, "gemini_calls": None}) == []        # deployed server: calls unknown, not a failure
 
 
-def test_table_says_13_of_13_when_every_run_matches():
+def test_table_says_14_of_14_when_every_run_matches():
     text = measure.render_block([_perfect_run() for _ in range(3)],
                                 {"date": "2026-10-01", "model": "gemini-2.5-flash", "where": "real local server, real Gemini"})
-    assert "**13/13 presets behaved as expected in 3 of 3 runs.**" in text
+    assert "**14/14 presets behaved as expected in 3 of 3 runs.**" in text
     assert "2026-10-01" in text and "`gemini-2.5-flash`" in text
     assert text.startswith(measure.START_LINE) and text.endswith(measure.END_MARK)
-    assert text.count("\n| `") == 13 and "3/3" in text
+    assert text.count("\n| `") == 14 and "3/3" in text
 
 
 def test_table_names_the_case_that_changed():
@@ -85,10 +85,10 @@ def test_table_names_the_case_that_changed():
     i = [p.case for p in measure.EXPECTED].index("sql_error.db")
     runs[1][i] = _obs("sql_error.db", result="healed", components=measure.EXPECTED[i].path, calls=2)
     text = measure.render_block(runs, {"date": "d", "model": "m", "where": "w"})
-    assert "12/13 presets behaved as expected in every run" in text
+    assert "13/14 presets behaved as expected in every run" in text
     assert "`sql_error.db` (1 of 3 runs: result: expected escalated, got healed)" in text
     assert "escalated ×2, healed ×1" in text and "| 2/3 |" in text
-    assert "Runs with all 13 as expected: 2 of 3" in text
+    assert "Runs with all 14 as expected: 2 of 3" in text
 
 
 def test_replace_block_replaces_only_between_the_markers():
@@ -129,6 +129,8 @@ class RoutingLLM(RunnableLambda):
             text = str(prompt)
             if "JSON syntax repair agent" in text:
                 return AIMessage(content=BRACKET_ONLY)
+            if "repair the SHAPE" in text:
+                return AIMessage(content='{"steps": [{"op": "unwrap", "key": "customers"}], "reason": "wrapped"}')
             if "SQL repair agent" in text:
                 return AIMessage(content="UNRESOLVABLE")
             return AIMessage(content="UNRESOLVED")
@@ -174,19 +176,19 @@ def test_full_measurement_over_http_matches_the_design(live_server, tmp_path):
     logged = []
     runs = measure.run_all(base, None, runs=2, gemini_count=lambda: len(calls), delay=0, log=logged.append)
 
-    assert len(runs) == 2 and all(len(r) == 13 for r in runs)
+    assert len(runs) == 2 and all(len(r) == 14 for r in runs)
     problems = [(o["case"], o["why"]) for run in runs for o in run if o["why"]]
     assert problems == [], problems
 
-    # Gemini is counted per preset: 2 (malformed) + 2 (sql_error) + 1 (missing_table) = 5 per run
-    assert sum(o["gemini_calls"] for o in runs[0]) == 5 and len(calls) == 10
+    # Gemini is counted per preset: 2 (malformed) + 1 (wrapped: AI fix) + 2 (sql_error) + 1 (missing_table) = 6 per run
+    assert sum(o["gemini_calls"] for o in runs[0]) == 6 and len(calls) == 12
     by = {o["case"]: o for o in runs[0]}
     assert by["case_drift_multi.json"]["components"].count(measure.R) == 2 and by["sql_error.db"]["blocked_by_guard"]
     assert all(o["seconds"] > 0 for o in runs[0])
 
     # the table and the README update
     text = measure.render_block(runs, {"date": "2026-10-01", "model": "gemini-2.5-flash", "where": "test server"})
-    assert "13/13 presets behaved as expected in 2 of 2 runs" in text
+    assert "14/14 presets behaved as expected in 2 of 2 runs" in text
     readme = tmp_path / "README.md"
     readme.write_text(f"intro\n{measure.START_LINE}\nnot measured yet\n{measure.END_MARK}\noutro\n", encoding="utf-8")
     readme.write_text(measure.replace_block(readme.read_text(encoding="utf-8"), text), encoding="utf-8")

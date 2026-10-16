@@ -531,9 +531,25 @@ Try all now uses about **5** Gemini calls instead of about 11.
 
 ---
 
+## 34. AI fix with a dry run, and a branching flow diagram
+
+**Purpose:** Before, a new kind of error went straight to a person, even when Gemini could have fixed it. Now Gemini gets one chance, but its fix is tested on a copy first, so it can never damage the data.
+
+- **When:** a Pipeline A file, when no rule knows the fix or a rule's fix failed at Verify. Only once per incident. Never for a missing file or table, and never after a guard already blocked a fix.
+- **What Gemini may do:** propose up to 5 steps from a fixed list: `unwrap`, `flatten_root`, `unnest`, `rename_field`, `lowercase_keys`, `trim_values`. No code, no SQL, no value edits.
+- **Dry run on a copy:** the steps must pass every check: same number of records, no value added, changed or removed, the pipeline's schema and row checks pass, at most a quarter of rows held back.
+- **Then:** passed → the fixed file is used for a real run and Verify checks it as usual. Failed → nothing is changed, the incident shows **Blocked by guard** and goes to a person with Gemini's proposal and the reason.
+- **New preset:** "Records wrapped in an object" (`case_wrapped_records.json`). The flatten rule fails, the AI fix unwraps the list, 10 rows saved, 1 Gemini call.
+- **Flow diagram:** now drawn as the real branching graph (Recovery, RCA, AI fix, Verify, Healed, Escalate). Only the arrows this incident took light up. The incident panel's step chips follow the same path.
+- Small fix: a failed verification run no longer writes junk rows to the quarantine table when no row was valid.
+
+**Files:** `src/agents/ai_fix.py` (new), `src/agents/recovery.py`, `src/agents/classifier.py`, `src/orchestration/graph.py`, `src/pipeline/json_pipeline.py`, `src/services/remediation_service.py`, `src/incidents/escalation_text.py`, `src/incidents/guard_messages.py`, `test_data/pipeline_A/case_wrapped_records.json` (new), `scripts/measure.py`, `scripts/make_demo_snapshot.py`, `frontend/src/lib/flow.ts`, `frontend/src/components/FlowGraph.tsx`, `FlowStrip.tsx`, `MissionControl.tsx`, `DemoLoop.tsx`, `frontend/src/lib/agentDetail.ts`, `frontend/src/lib/incident.ts`, `frontend/src/presets.ts`, `test/test_ai_fix.py` (new), `test_agent_paths.py`, `test_measure.py`, `test_auth.py`, `test_demo_snapshot.py`, `test_frontend_react.py`
+
+---
+
 ## Results before and after
 
-Same 13 test files, same fake Gemini:
+Same 13 test files, same fake Gemini (before section 34 added the 14th):
 
 | Test file | Before | After |
 |:---|:---|:---|

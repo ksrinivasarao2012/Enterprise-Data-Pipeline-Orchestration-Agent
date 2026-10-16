@@ -368,7 +368,7 @@ export function Dashboard({ who, route, go, demoBanner }: Props) {
 
       {route === 'demo' && (
         <>
-          <PageTitle title="Demo" accent="All 13 test cases, recorded." />
+          <PageTitle title="Demo" accent="All test cases, recorded." />
           {demoBanner}
           <MetricsStrip metrics={metrics} />
           <IncidentTimeline

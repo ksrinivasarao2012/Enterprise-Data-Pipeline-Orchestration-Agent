@@ -38,11 +38,11 @@ export function incidentStatusMeta(incident: Incident): { label: string; tone: T
 
 export const isFinal = (status: string) => status === 'RESOLVED' || status === 'ESCALATED';
 
-const GUARD_PATTERNS: RegExp[] = [/SQL guard rejected/i, /LLM file repair rejected/i, /UNRESOLVABLE/];
+const GUARD_PATTERNS: RegExp[] = [/SQL guard rejected/i, /LLM file repair rejected/i, /UNRESOLVABLE/, /Dry run rejected the fix/i];
 
 /** Text after "rejected" (or after UNRESOLVABLE), cleaned up for display. */
 function reasonFrom(text: string): string {
-  const m = text.match(/rejected(?:\s+the\s+LLM\s+repair)?\s*[:\-–—]?\s*(.*)$/is) ?? text.match(/UNRESOLVABLE\s*[:\-–—]?\s*(.*)$/s);
+  const m = text.match(/rejected(?:\s+the\s+LLM\s+repair|\s+the\s+fix)?\s*[:\-–—]?\s*(.*)$/is) ?? text.match(/UNRESOLVABLE\s*[:\-–—]?\s*(.*)$/s);
   const reason = (m?.[1] ?? '').trim() || text.trim();
   return reason.charAt(0).toUpperCase() + reason.slice(1);
 }
@@ -72,7 +72,7 @@ export function guardReason(incident: Incident, audit?: AuditEntry[]): string | 
   if (isGuardMessage(incident.recovery_action)) {
     return reasonFrom(incident.recovery_action as string);
   }
-  const hit = audit?.find((a) => /LLM file repair rejected/i.test(a.message) || /UNRESOLVABLE/.test(a.message));
+  const hit = audit?.find((a) => /LLM file repair rejected/i.test(a.message) || /UNRESOLVABLE/.test(a.message) || /Dry run rejected the fix/i.test(a.message));
   return hit ? reasonFrom(hit.message) : null;
 }
 

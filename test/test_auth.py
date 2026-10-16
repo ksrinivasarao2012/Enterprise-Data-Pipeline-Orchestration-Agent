@@ -208,9 +208,9 @@ def test_try_all_counts_as_one_run(sign_in, fake_llm, monkeypatch):
     auth.reset_rate_limit()
     ann = sign_in("ann@example.com")
     demo = ann.post("/api/demo/start").json()
-    assert len(demo["presets"]) == 13
+    assert len(demo["presets"]) == 14
     dh = {"X-Demo-Token": demo["token"]}
-    for p in demo["presets"]:  # 13 runs, far above the limit of 2
+    for p in demo["presets"]:  # 14 runs, far above the limit of 2
         r = ann.post(f"/api/pipelines/{p['pipeline']}/execute", headers=dh, data={"test_case": p["test_case"]})
         assert r.status_code == 200, (p, r.text)
     # the demo itself used 1 of the 2 runs, so exactly one normal run is left

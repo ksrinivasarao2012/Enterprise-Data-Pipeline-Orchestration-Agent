@@ -36,9 +36,10 @@ def classifier_agent_node(state: Dict[str, Any]) -> Dict[str, Any]:
     AuditService.log_event(incident_id, "CLASSIFIER_AGENT", rationale)
 
     # Decide the path through the graph (CHANGES.md section 23): rules / Gemini RCA / human.
-    from src.agents.recovery import plan_route, ROUTE_RULES, ROUTE_LLM
+    from src.agents.recovery import plan_route, ROUTE_RULES, ROUTE_LLM, ROUTE_TRY
     route, why = plan_route(state)
-    next_step = {ROUTE_RULES: "Recovery (no Gemini needed)", ROUTE_LLM: "RCA (Gemini)"}.get(route, "RCA (Gemini), then a person")
+    next_step = {ROUTE_RULES: "Recovery (no Gemini needed)", ROUTE_LLM: "RCA (Gemini)",
+                 ROUTE_TRY: "RCA (Gemini), then an AI fix with a dry run"}.get(route, "RCA (Gemini), then a person")
     AuditService.log_event(incident_id, "CLASSIFIER_AGENT", f"Route: {next_step}, because {why}.")
 
     return {

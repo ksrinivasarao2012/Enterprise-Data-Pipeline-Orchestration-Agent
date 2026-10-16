@@ -169,8 +169,19 @@ def resolve_schema_drift(error_msg: str, pipeline_id: str, llm=None, root_cause:
 # How an incident is routed through the agent graph (CHANGES.md section 23).
 #   "rules" - a safe rule already knows the fix: go straight to Recovery, no Gemini call
 #   "llm"   - no rule fits: the RCA agent (Gemini) analyses it first, then Recovery uses that analysis
+#   "try"   - a new kind of Pipeline A failure: RCA analyses it, then Gemini proposes ONE fix from a
+#             fixed set of data steps, which must pass a dry run on a copy (CHANGES.md section 34)
 #   "none"  - there is no automatic fix: RCA explains it for the person who takes over, then escalate
-ROUTE_RULES, ROUTE_LLM, ROUTE_NONE = "rules", "llm", "none"
+ROUTE_RULES, ROUTE_LLM, ROUTE_TRY, ROUTE_NONE = "rules", "llm", "try", "none"
+
+# Failures no data fix can solve: the input itself is missing. These always go to a person.
+_UNFIXABLE = ("missing on disk", "no such file", "filenotfound", "does not exist", "no such table", "permission denied")
+
+
+def ai_fix_allowed(pipeline_id: str | None, error_msg: str | None) -> bool:
+    """The AI fix (with dry run) only works on Pipeline A's JSON files, and never for a missing input."""
+    msg = (error_msg or "").lower()
+    return pipeline_id == "PIPELINE_A" and not any(s in msg for s in _UNFIXABLE)
 
 
 def plan_route(state: Dict[str, Any]) -> tuple[str, str]:
@@ -196,6 +207,8 @@ def plan_route(state: Dict[str, Any]) -> tuple[str, str]:
             return ROUTE_RULES, "the file is an object instead of a list; a rule flattens it without Gemini"
         if missing_key == "malformed_syntax":
             return ROUTE_LLM, "the JSON syntax is broken, so Gemini analyses it and then repairs the brackets"
+    if ai_fix_allowed(pipeline, error_msg):
+        return ROUTE_TRY, "no rule knows this kind of failure, so Gemini analyses it and proposes one fix that must pass a dry run on a copy"
     return ROUTE_NONE, "there is no safe automatic fix for this kind of failure; Gemini explains it for the person who takes over"
 
 
@@ -334,5 +347,6 @@ def recovery_agent_node(state: Dict[str, Any]) -> Dict[str, Any]:
         },
         "merged_params": param_map if action_type == "RECONFIGURE" else merged,
         "pending_error": None,
+        "guard_blocked": guard_blocked,
         "audit_trail": state.get("audit_trail", []) + ["Recovery agent deployed remediation package."]
     }

@@ -2,10 +2,11 @@
 """
 How a "blocked by guard" incident is recognised (CHANGES.md section 26).
 
-A guard blocks an AI fix in three ways, and each one writes a known sentence:
+A guard blocks an AI fix in four ways, and each one writes a known sentence:
     SQL guard          "SQL guard rejected the LLM repair: ..."
     JSON repair check  "LLM file repair rejected: ..."
     UNRESOLVABLE       "LLM reported the SQL error as UNRESOLVABLE ..."
+    AI-fix dry run     "Dry run rejected the fix: ..." (CHANGES.md section 34)
 
 New incidents are marked when the block happens (IncidentRepository.mark_blocked_by_guard).
 Old incidents, made before the column existed, are marked once by a small update query that
@@ -13,10 +14,10 @@ looks for the same sentences in their audit log. Both use this one list, so they
 The frontend (src/lib/incident.ts) keeps the same three patterns to show the reason text.
 """
 
-GUARD_PHRASES = ("SQL guard rejected", "LLM file repair rejected", "UNRESOLVABLE")
+GUARD_PHRASES = ("SQL guard rejected", "LLM file repair rejected", "UNRESOLVABLE", "Dry run rejected the fix")
 
 # Only the agents' own audit lines count; a root-cause text written by Gemini must never trigger it.
-_AUDIT_COMPONENTS = ("RECOVERY_AGENT", "ACTUATOR")
+_AUDIT_COMPONENTS = ("RECOVERY_AGENT", "ACTUATOR", "AI_FIX_AGENT")
 
 
 def backfill_sql_and_params() -> tuple[str, tuple]:

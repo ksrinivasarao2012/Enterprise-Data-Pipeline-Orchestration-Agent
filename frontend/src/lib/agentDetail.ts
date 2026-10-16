@@ -24,7 +24,12 @@ const ROLE: Record<string, { title: string; role: string }> = {
   RCA_AGENT: { title: 'RCA (Gemini)', role: 'Asks Gemini to explain the root cause of the failure.' },
   RECOVERY_AGENT: { title: 'Recovery', role: 'Chooses a fix: map a renamed column, repair the file or SQL, quarantine rows, or escalate.' },
   ACTUATOR: { title: 'Verify', role: 'Applies the fix, re-runs the pipeline and checks real rows were saved.' },
-  FINAL: { title: 'Outcome', role: 'How the incident ended.' },
+  AI_FIX_AGENT: {
+    title: 'AI fix (Gemini)',
+    role: 'When no rule works, Gemini proposes one fix from a fixed list of data steps. It is tried on a copy first and used only if every check passes.',
+  },
+  FINAL: { title: 'Healed', role: 'The run saved real rows after the fix.' },
+  ESCALATION: { title: 'Escalate', role: 'Hands the incident to a person, with the reason.' },
 };
 
 export function agentDetail(key: string, incident: Incident, audit: AuditEntry[] | null): AgentDetail {
@@ -56,10 +61,21 @@ export function agentDetail(key: string, incident: Incident, audit: AuditEntry[]
     case 'RECOVERY_AGENT':
       if (lines.length && incident.recovery_action) facts.push({ label: 'Chosen fix', value: incident.recovery_action, long: true });
       break;
+    case 'AI_FIX_AGENT': {
+      const proposed = lines.find((a) => a.message.startsWith('Gemini proposed'));
+      const result = lines.find((a) => /^(Dry run (passed|rejected)|No AI fix was applied)/.test(a.message));
+      if (proposed) facts.push({ label: "Gemini's proposal", value: proposed.message.replace(/^Gemini proposed:? ?/, ''), long: true });
+      if (result) facts.push({ label: 'Dry run on a copy', value: result.message, long: true });
+      break;
+    }
+    case 'ESCALATION':
+      if (incident.status === 'ESCALATED') facts.push({ label: 'Status', value: 'Handed to a person' });
+      break;
     case 'FINAL':
+      if (incident.status === 'ESCALATED') break;
       facts.push({
         label: 'Status',
-        value: incident.status === 'RESOLVED' ? 'Healed' : incident.status === 'ESCALATED' ? 'Escalated to a person' : 'Still running',
+        value: incident.status === 'RESOLVED' ? 'Healed' : 'Still running',
       });
       if (finished) facts.push({ label: 'Time taken', value: timeTaken(incident) });
       break;
@@ -74,6 +90,16 @@ export function agentDetail(key: string, incident: Incident, audit: AuditEntry[]
     skippedWhy = 'Skipped: there was no automatic fix to try, so the incident went straight to a person.';
   else if (key === 'ACTUATOR' && incident.status === 'ESCALATED')
     skippedWhy = 'Skipped: no fix was applied, so there was nothing to verify.';
-  const empty = key === 'FINAL' || hasContent ? null : finished ? skippedWhy : 'This agent has not run yet.';
+  else if (key === 'AI_FIX_AGENT' && incident.status === 'RESOLVED')
+    skippedWhy = 'Skipped: the first fix worked, so no AI fix was needed.';
+  else if (key === 'AI_FIX_AGENT' && incident.blocked_by_guard)
+    skippedWhy = 'Skipped: a safety guard blocked an earlier fix, so the AI does not get a second try.';
+  else if (key === 'AI_FIX_AGENT')
+    skippedWhy = 'Skipped: an AI fix only reshapes Pipeline A files that exist (not a missing file or table, not a database).';
+  else if (key === 'FINAL')
+    skippedWhy = 'Not healed: the incident went to a person.';
+  else if (key === 'ESCALATION' && incident.status === 'RESOLVED')
+    skippedWhy = 'Skipped: the incident was healed, so no person was needed.';
+  const empty = (key === 'FINAL' && incident.status !== 'ESCALATED') || hasContent ? null : finished ? skippedWhy : 'This agent has not run yet.';
   return { ...meta, facts, lines, empty };
 }

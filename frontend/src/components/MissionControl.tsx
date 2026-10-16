@@ -22,7 +22,7 @@ interface Props {
 
 /** The hero: the agent loop as a glowing graph, replayed from the audit log. */
 export function MissionControl({ incident, audit, step, onReplay, running, note, footer }: Props) {
-  const { nodes, last, done, live, loops } = computeFlow(incident, audit, step);
+  const { nodes, edges, last, done, live, loops } = computeFlow(incident, audit, step);
   // The circle the user clicked. Cleared when a different incident is shown.
   const [picked, setPicked] = useState<string | null>(null);
   const incidentId = incident?.incident_id ?? null;
@@ -103,12 +103,13 @@ export function MissionControl({ incident, audit, step, onReplay, running, note,
           )}
         </div>
 
-        <div className="mx-auto max-w-[780px] px-1 py-2 sm:px-4">
+        <div className="mx-auto max-w-[880px] px-1 py-2 sm:px-4">
           {incident && isQuarantineOnly(incident) ? (
             <ValidationFlow incident={incident} audit={audit} step={step} />
           ) : (
             <FlowGraph
               nodes={nodes}
+              edges={edges}
               label={summary}
               picked={picked}
               loops={loops}

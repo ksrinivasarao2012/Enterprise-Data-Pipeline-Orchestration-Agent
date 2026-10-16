@@ -2,7 +2,7 @@
 Browser tests for the React dashboard in frontend/ (see frontend/README.md).
 
 They start the real backend with Google sign-in switched on and a fake Gemini that tries to
-cheat on SQL, then click through the built app in Chromium. Google itself can't be used in a
+cheat on SQL (and, for the AI fix, proposes to unwrap a list), then click through the built app in Chromium. Google itself can't be used in a
 test, so the browser is given the login cookie the server sets after a Google sign-in
 (conftest.browser_sign_in); everything after that is the real app. Skipped if Playwright is not installed or
 the app has not been built yet (cd frontend && npm install && npm run build).
@@ -39,9 +39,10 @@ SERVER = textwrap.dedent('''
     import langchain_google_genai
     CHEAT = ("SELECT device_id, COUNT(log_id) AS total_events, SUM(CASE WHEN 0 >= 400 THEN 1 ELSE 0 END) * 1.0 / "
              "COUNT(log_id) AS error_rate, AVG(response_time) AS avg_response_time FROM device_telemetry GROUP BY device_id")
+    UNWRAP = '{"steps": [{"op": "unwrap", "key": "customers"}], "reason": "the records sit under customers"}'
     class Fake(RunnableLambda):
         def __init__(self):
-            super().__init__(lambda p: AIMessage(content=CHEAT if "SQL repair" in str(p) else "UNRESOLVED"))
+            super().__init__(lambda p: AIMessage(content=CHEAT if "SQL repair" in str(p) else UNWRAP if "repair the SHAPE" in str(p) else "UNRESOLVED"))
         def with_structured_output(self, s):
             return RunnableLambda(lambda _: s(root_cause_analysis="fake rca", confidence_score=0.5))
     f = lambda *a, **k: Fake()
@@ -274,6 +275,28 @@ def test_clicking_an_agent_circle_explains_what_it_did(page):
     assert page.locator("#agent-detail").count() == 0
 
 
+def test_the_graph_lights_only_the_path_taken_by_an_ai_fix(page):
+    # The flatten rule fails on records wrapped in an object; Gemini proposes "unwrap", the dry run
+    # on a copy passes, and the graph lights Recovery -> Verify -> AI fix -> Verify -> Healed.
+    _login(page, ADMIN_EMAIL)
+    page.get_by_text("Records wrapped in an object").click()
+    page.get_by_role("button", name="Run pipeline").click()
+    page.get_by_text("Healed by agents").first.wait_for(timeout=30000)
+    mc = page.locator("#mission-control")
+    page.wait_for_function(
+        "document.querySelector('#mission-control [data-node=\"FINAL\"]')?.getAttribute('data-state') === 'healed'",
+        timeout=20000)
+    lit = {e.get_attribute("data-edge") for e in mc.locator('[data-lit="true"]').all()}
+    assert lit == {"MONITOR_AGENT>CLASSIFIER_AGENT", "CLASSIFIER_AGENT>RECOVERY_AGENT", "RECOVERY_AGENT>ACTUATOR",
+                   "ACTUATOR>AI_FIX_AGENT", "AI_FIX_AGENT>ACTUATOR", "ACTUATOR>FINAL"}, lit
+    assert mc.locator('[data-node="ESCALATION"]').get_attribute("data-state") == "skipped"
+    mc.locator('[data-node="AI_FIX_AGENT"]').click()
+    panel = page.locator("#agent-detail")
+    assert "unwrap 'customers'" in panel.inner_text() and "Dry run passed on a copy" in panel.inner_text()
+    mc.locator('[data-node="RCA_AGENT"]').click()
+    assert "Skipped" in panel.inner_text()
+
+
 def test_download_report_as_pdf_and_json(page):
     pytest.importorskip("fpdf")
     _heal_country_drift(page)
@@ -290,11 +313,11 @@ def test_download_report_as_pdf_and_json(page):
 
 
 def test_try_all_runs_every_preset_as_a_viewer(page):
-    # 13 presets is more than the viewer limit (10 per minute), but Try all counts as one run.
+    # 14 presets is more than the viewer limit (10 per minute), but Try all counts as one run.
     _login(page, VIEWER)
-    page.get_by_role("button", name="Try all 13 presets").click()
+    page.get_by_role("button", name="Try all 14 presets").click()
     page.get_by_role("button", name="Stop after this one").wait_for(timeout=5000)
-    page.get_by_text("Try all finished: 13 runs").wait_for(timeout=120000)
+    page.get_by_text("Try all finished: 14 runs").wait_for(timeout=120000)
     box = page.inner_text("#try-all-results")
     assert "Too many runs" not in box, box
     for label in ["Healthy file", "Renamed column: country", "Missing column", "Missing table"]:
@@ -368,7 +391,7 @@ def test_try_all_on_a_phone_keeps_the_results_list_in_view(server):
         pg = browser.new_page(viewport={"width": 390, "height": 844})
         pg.goto(server)
         _login(pg, ADMIN_EMAIL)
-        pg.get_by_role("button", name="Try all 13 presets").click()
+        pg.get_by_role("button", name="Try all 14 presets").click()
         in_view = "(() => { const r = document.getElementById('try-all-results')?.getBoundingClientRect();" \
                   " return !!r && r.top < innerHeight && r.bottom > 0; })()"
         for _ in range(6):  # sample while it runs
@@ -381,6 +404,7 @@ def test_try_all_on_a_phone_keeps_the_results_list_in_view(server):
 
 def test_open_mode_shows_clear_history():
     # No keys set (local "Open mode"): the server treats everyone as admin, so the button must show.
+    pytest.importorskip("playwright.sync_api")
     import requests
     from playwright.sync_api import sync_playwright
     port = _free_port()
@@ -460,7 +484,7 @@ def _load_script(name):
 
 
 def test_demo_tab_shows_the_recording_read_only(page, server):
-    """The recording is made like scripts/make_demo_snapshot.py makes it (13 presets, then read
+    """The recording is made like scripts/make_demo_snapshot.py makes it (14 presets, then read
     back through the API), here as one Google account so other tests' runs don't get in."""
     import requests
     from datetime import datetime, timezone
@@ -470,8 +494,8 @@ def test_demo_tab_shows_the_recording_read_only(page, server):
         for case in sorted(os.listdir(os.path.join(ROOT, "test_data", folder))):
             requests.post(f"{server}/api/pipelines/{pipe}/execute", headers=rec, data={"test_case": case}, timeout=60)
     data = snapmod.collect(server, rec)
-    meta = {"recorded_at": datetime.now(timezone.utc).isoformat(), "model": "test-model-xyz", "presets": 13,
-            "as_expected": 13, "gemini_calls": 5}
+    meta = {"recorded_at": datetime.now(timezone.utc).isoformat(), "model": "test-model-xyz", "presets": 14,
+            "as_expected": 14, "gemini_calls": 5}
     with open(DEMO_FILE, "w", encoding="utf-8") as f:
         json.dump({"meta": meta, **data}, f)
     n = len(data["incidents"])
@@ -480,10 +504,10 @@ def test_demo_tab_shows_the_recording_read_only(page, server):
     _login(page, "visitor@example.com")              # a brand-new viewer with no runs of their own
     page.get_by_role("link", name="Demo").click()
     page.get_by_text("Read-only demo").wait_for(timeout=10000)
-    assert "test-model-xyz" in page.inner_text("main") and "13/13 test cases as designed" in page.inner_text("main")
+    assert "test-model-xyz" in page.inner_text("main") and "14/14 test cases as designed" in page.inner_text("main")
     page.locator("#timeline-title").get_by_text(f"{min(20, n)} of {n}").wait_for(timeout=10000)
     # nothing can be run or cleared here
-    for name in ("Run pipeline", "Clear my history", "Clear history", "Try all 13 presets"):
+    for name in ("Run pipeline", "Clear my history", "Clear history", "Try all 14 presets"):
         assert page.get_by_role("button", name=name).count() == 0, name
     # filters work on the recording, in the browser
     page.get_by_role("button", name="Escalated", exact=True).click()

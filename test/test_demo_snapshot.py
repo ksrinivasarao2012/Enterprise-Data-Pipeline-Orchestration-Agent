@@ -1,5 +1,5 @@
 """
-Demo tab (CHANGES.md section 32): a frozen recording of the 13 presets, for signed-in users only,
+Demo tab (CHANGES.md section 32): a frozen recording of the 14 presets, for signed-in users only,
 read-only, and never mixed with anyone's own runs. The browser side is tested in
 test_frontend_react.py::test_demo_tab_shows_the_recording_read_only.
 """
@@ -20,8 +20,8 @@ INCIDENT = {"incident_id": "inc_demo1", "run_id": "run_a_x", "pipeline_id": "PIP
             "category": "SCHEMA_DRIFT", "status": "RESOLVED", "error_class": "KeyError", "error_message": "country",
             "stack_trace": "", "root_cause": None, "recovery_action": "Action: RECONFIGURE",
             "blocked_by_guard": False, "created_at": "2026-10-09T10:00:00+00:00", "resolved_at": None}
-SNAP = {"meta": {"recorded_at": "2026-10-09T10:00:00+00:00", "model": "gemini-3.5-flash-lite", "presets": 13,
-                 "as_expected": 13, "gemini_calls": 5},
+SNAP = {"meta": {"recorded_at": "2026-10-09T10:00:00+00:00", "model": "gemini-3.5-flash-lite", "presets": 14,
+                 "as_expected": 14, "gemini_calls": 5},
         "metrics": {"resolved": 1, "investigating": 0, "escalated": 0, "runs_without_incident": 2, "quarantined": 0,
                     "blocked_by_guard": 0},
         "incidents": [INCIDENT],
@@ -73,7 +73,7 @@ def _fake_run(monkeypatch, why):
     monkeypatch.setattr(snapmod.measure, "model_name", lambda: "gemini-3.5-flash-lite")
     monkeypatch.setattr(snapmod.measure, "start_local_server",
                         lambda tmp: (None, "http://x", "key", os.path.join(tmp, "calls.txt")))
-    obs = [{"case": f"c{i}", "why": [], "gemini_calls": 0} for i in range(13)]
+    obs = [{"case": f"c{i}", "why": [], "gemini_calls": 0} for i in range(14)]
     obs[6] = {"case": "case_malformed_syntax.json", "why": why, "gemini_calls": 2}
     monkeypatch.setattr(snapmod.measure, "run_all", lambda *a, **k: [obs])
     monkeypatch.setattr(snapmod, "collect", lambda base, headers: {k: SNAP[k] for k in SNAP if k != "meta"})
@@ -84,7 +84,7 @@ def test_script_writes_the_recording_when_every_preset_behaves(tmp_path, monkeyp
     out = tmp_path / "demo" / "snapshot.json"
     assert snapmod.main(["--out", str(out), "--delay", "0"]) == 0
     snap = json.loads(out.read_text(encoding="utf-8"))
-    assert snap["meta"]["presets"] == 13 and snap["meta"]["as_expected"] == 13 and snap["meta"]["gemini_calls"] == 2
+    assert snap["meta"]["presets"] == 14 and snap["meta"]["as_expected"] == 14 and snap["meta"]["gemini_calls"] == 2
     assert snap["meta"]["model"] == "gemini-3.5-flash-lite" and snap["incidents"] == [INCIDENT]
 
 

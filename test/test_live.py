@@ -24,7 +24,7 @@ from conftest import ADMIN_EMAIL, browser_sign_in, server_env_for_google
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DIST = os.path.join(ROOT, "frontend", "dist", "index.html")
 ADMIN = "admin-live-key"
-DELAY = 4  # seconds the fake Gemini takes for the RCA step
+DELAY = 8  # seconds the fake Gemini takes for the RCA step (long enough for slow machines)
 
 SERVER = textwrap.dedent('''
     import os, sys, time, importlib.util
@@ -102,7 +102,18 @@ def test_api_answers_while_a_run_is_healing(server):
     import requests
     h = {"X-Access-Key": ADMIN}
     t, out = _start_run(server)
-    time.sleep(1.5)  # the run is now inside the slow Gemini call
+    # Wait (up to a few seconds, slow machines need longer) until the run is inside the slow Gemini call:
+    # the Classifier has written its route, RCA has not answered yet.
+    steps = []
+    for _ in range(60):
+        time.sleep(0.1)
+        found = requests.get(server + "/api/incidents", headers=h, timeout=10).json()
+        if found:
+            audit = requests.get(f"{server}/api/incidents/{found[0]['incident_id']}/audit", headers=h, timeout=10).json()
+            steps = [a["component"] for a in audit]
+            if "CLASSIFIER_AGENT" in steps:
+                break
+    assert "MONITOR_AGENT" in steps and "CLASSIFIER_AGENT" in steps, steps  # already visible mid-run
 
     start = time.monotonic()
     incidents = requests.get(server + "/api/incidents", headers=h, timeout=10).json()
@@ -111,9 +122,6 @@ def test_api_answers_while_a_run_is_healing(server):
     assert t.is_alive(), "the run should still be in progress"
 
     assert len(incidents) == 1 and incidents[0]["status"] not in ("RESOLVED", "ESCALATED")
-    audit = requests.get(f"{server}/api/incidents/{incidents[0]['incident_id']}/audit", headers=h, timeout=10).json()
-    steps = [a["component"] for a in audit]
-    assert "MONITOR_AGENT" in steps and "CLASSIFIER_AGENT" in steps, steps  # already visible mid-run
 
     t.join(timeout=30)
     assert out["result"].get("healed") is True
@@ -148,7 +156,8 @@ def test_dashboard_lights_up_steps_during_the_run(server):
 
         # While the fake Gemini is still thinking (DELAY seconds), the flow must already
         # show this incident and its first agent steps.
-        page.wait_for_timeout(2500)
+        page.wait_for_function(
+            "(document.querySelector('#mission-control')?.innerText || '').includes('Route: RCA')", timeout=6000)
         mc = page.inner_text("#mission-control")
         assert "inc_" in mc, "the new incident should appear during the run"
         assert "[CLASSIFIER_AGENT]" in mc or "[MONITOR_AGENT]" in mc, mc

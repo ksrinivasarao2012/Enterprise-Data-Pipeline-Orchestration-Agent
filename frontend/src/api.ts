@@ -243,7 +243,7 @@ export const api = {
     });
   },
 
-  /** The Demo tab's frozen recording of all 13 presets (404 until one is recorded). */
+  /** The Demo tab's frozen recording of all the presets (404 until one is recorded). */
   demoSnapshot: () => request<import('./data').DemoSnapshot>('/api/demo/snapshot'),
   /** Report download for an incident in the recording. */
   demoReport: async (incidentId: string, format: 'json' | 'pdf'): Promise<Blob> => {

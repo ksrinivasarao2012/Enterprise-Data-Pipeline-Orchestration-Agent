@@ -4,7 +4,8 @@ import { useReducedMotion } from '../hooks/useMediaQuery';
 import { computeFlow } from '../lib/flow';
 import { FlowGraph } from './FlowGraph';
 
-// Two illustrative runs for the login page: one the agents heal, one a guard blocks.
+// Three illustrative runs for the login page: a rule heals one, an AI fix (checked by a dry run)
+// heals one, and a guard blocks one.
 const base = {
   run_id: 'sample',
   pipeline_id: 'pipeline_a',
@@ -22,20 +23,31 @@ const SAMPLES: { incident: Incident; audit: AuditEntry[] }[] = [
     incident: { ...base, incident_id: 'sample-1', severity: 'P2', category: 'SCHEMA_DRIFT', status: 'RESOLVED' },
     audit: [
       { component: 'MONITOR_AGENT', message: 'Run failed: column "country" not found.', timestamp: '' },
-      { component: 'CLASSIFIER_AGENT', message: 'Classified as SCHEMA_DRIFT.', timestamp: '' },
-      { component: 'RCA_AGENT', message: 'Upstream renamed "country" to "country_code".', timestamp: '' },
+      { component: 'CLASSIFIER_AGENT', message: 'Route: Recovery (no Gemini needed), because a rule knows this error.', timestamp: '' },
       { component: 'RECOVERY_AGENT', message: 'Mapped country_code → country.', timestamp: '' },
-      { component: 'ACTUATOR', message: 'Re-ran the load: 0 errors. Healed.', timestamp: '' },
+      { component: 'ACTUATOR', message: 'Re-ran the load: 10 records saved. Healed.', timestamp: '' },
     ],
   },
   {
-    incident: { ...base, incident_id: 'sample-2', severity: 'P1', category: 'SQL_ERROR', status: 'ESCALATED' },
+    incident: { ...base, incident_id: 'sample-2', severity: 'P2', category: 'SCHEMA_DRIFT', status: 'RESOLVED' },
+    audit: [
+      { component: 'MONITOR_AGENT', message: 'Run failed: the file is not a list of records.', timestamp: '' },
+      { component: 'CLASSIFIER_AGENT', message: 'Route: Recovery (no Gemini needed), because a rule knows this error.', timestamp: '' },
+      { component: 'RECOVERY_AGENT', message: 'Flatten the file.', timestamp: '' },
+      { component: 'ACTUATOR', message: 'Verification run 1 failed. Trying an AI fix.', timestamp: '' },
+      { component: 'AI_FIX_AGENT', message: 'Gemini proposed: unwrap "customers".', timestamp: '' },
+      { component: 'AI_FIX_AGENT', message: 'Dry run passed on a copy: same records, no value changed.', timestamp: '' },
+      { component: 'ACTUATOR', message: 'Re-ran the load: 10 records saved. Healed.', timestamp: '' },
+    ],
+  },
+  {
+    incident: { ...base, incident_id: 'sample-3', severity: 'P1', category: 'SQL_ERROR', status: 'ESCALATED' },
     audit: [
       { component: 'MONITOR_AGENT', message: 'Run failed: no such column.', timestamp: '' },
-      { component: 'CLASSIFIER_AGENT', message: 'Classified as SQL_ERROR.', timestamp: '' },
+      { component: 'CLASSIFIER_AGENT', message: 'Route: RCA (Gemini), because no rule knows this error.', timestamp: '' },
       { component: 'RCA_AGENT', message: 'Table was created without the column.', timestamp: '' },
-      { component: 'RECOVERY_AGENT', message: 'SQL guard rejected: the fix would drop a table.', timestamp: '' },
-      { component: 'ACTUATOR', message: 'No change made. Sent to a human.', timestamp: '' },
+      { component: 'RECOVERY_AGENT', message: 'SQL guard rejected: the fix would fake the column.', timestamp: '' },
+      { component: 'ESCALATION', message: 'No change made. Sent to a person.', timestamp: '' },
     ],
   },
 ];
@@ -66,7 +78,7 @@ export function DemoLoop() {
     return () => window.clearTimeout(t);
   }, [step, audit.length, reduced]);
 
-  const { nodes, last } = computeFlow(incident, audit, Math.min(step, audit.length));
+  const { nodes, edges, last } = computeFlow(incident, audit, Math.min(step, audit.length));
 
   return (
     <figure className="card relative overflow-hidden">
@@ -79,7 +91,7 @@ export function DemoLoop() {
           </span>
           Sample run · replayed on a loop
         </figcaption>
-        <FlowGraph nodes={nodes} label="Illustration of the agent flow: Monitor, Classifier, RCA, Recovery, Verify, then Healed or Escalated." />
+        <FlowGraph nodes={nodes} edges={edges} label="Illustration of the agent flow: Monitor and Classifier pick a route; Recovery, RCA or an AI fix with a dry run tries a fix; Verify checks it; then Healed or Escalated." />
         <p aria-hidden="true" className="min-h-[2.5rem] rounded-xl border border-line bg-bg/70 px-3.5 py-2.5 font-mono text-[12px]">
           <span className="text-info">[{last ? last.component : 'MONITOR_AGENT'}]</span> {last ? last.message : 'Watching the pipeline…'}
         </p>

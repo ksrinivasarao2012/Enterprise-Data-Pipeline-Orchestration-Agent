@@ -13,10 +13,16 @@ const CHIP: Record<NodeState, string> = {
 
 /** Compact one-line version of the agent flow for the incident detail panel. */
 export function FlowStrip({ incident, audit, step }: { incident: Incident; audit: AuditEntry[] | null; step: number }) {
-  const { nodes } = computeFlow(incident, audit, step);
+  const { nodes, path } = computeFlow(incident, audit, step);
+  // The path this incident took (the graph branches), or the main path before anything ran.
+  const order = path.length ? path : ['MONITOR_AGENT', 'CLASSIFIER_AGENT', 'RECOVERY_AGENT', 'ACTUATOR', 'FINAL'];
+  const shown = order
+    .filter((k, i) => order.indexOf(k) === i)
+    .map((k) => nodes.find((n) => n.key === k))
+    .filter((n): n is (typeof nodes)[number] => !!n);
   return (
     <ol aria-label="Agent steps" className="flex flex-wrap items-center gap-x-1 gap-y-1.5">
-      {nodes.map((n, i) => (
+      {shown.map((n, i) => (
         <li key={n.key} className="flex items-center gap-1">
           <span
             className={`inline-flex h-7 items-center rounded-md border px-2 text-xs font-medium transition-colors duration-300 ${CHIP[n.state]} ${
@@ -27,7 +33,7 @@ export function FlowStrip({ incident, audit, step }: { incident: Incident; audit
             {n.state === 'blocked' && <span className="sr-only"> (blocked by guard)</span>}
             {n.state === 'skipped' && <span className="sr-only"> (skipped)</span>}
           </span>
-          {i < nodes.length - 1 && (
+          {i < shown.length - 1 && (
             <span aria-hidden="true" className="text-faint">
               →
             </span>

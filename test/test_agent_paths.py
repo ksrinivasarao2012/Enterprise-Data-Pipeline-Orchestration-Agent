@@ -1,7 +1,7 @@
 """
 The branching agent graph (CHANGES.md section 23): one test per preset.
 
-For each of the 13 presets this checks the three things agreed before building:
+For each of the 14 presets this checks the three things agreed before building:
     1. the exact path through the graph (which agents ran, in order, including the loop),
     2. how many times Gemini was called,
     3. the final result.
@@ -23,6 +23,8 @@ BRACKET_ONLY = BROKEN.replace('"yuki.tanaka@example.com"\n', '"yuki.tanaka@examp
 
 T, M, C, RCA, R, A, E = ("TELEMETRY_RECEIVER", "MONITOR_AGENT", "CLASSIFIER_AGENT", "RCA_AGENT",
                          "RECOVERY_AGENT", "ACTUATOR", "ESCALATION")
+AI = "AI_FIX_AGENT"
+UNWRAP = '{"steps": [{"op": "unwrap", "key": "customers"}], "reason": "the records are under customers"}'
 START = [T, M, C, C]  # the Classifier writes two lines: severity, then the route it chose
 
 # (pipeline, preset, Gemini's reply, expected path, Gemini calls, expected result)
@@ -34,6 +36,7 @@ CASES = [
     ("a", "case_drift_multi.json", "", START + [R, A, A, R, A, A], 0, "healed"),  # the loop
     ("a", "case_invalid_root.json", "", START + [R, A, A], 0, "healed"),
     ("a", "case_malformed_syntax.json", BRACKET_ONLY, START + [RCA, R, A, A, A], 2, "healed_with_quarantine"),
+    ("a", "case_wrapped_records.json", UNWRAP, START + [R, A, A, AI, AI, A, A], 1, "healed"),  # rule fails -> AI fix
     ("a", "case_invalid_email.json", "", None, 0, "quarantined"),
     ("a", "case_duplicate_ids.json", "", None, 0, "quarantined"),
     ("b", "healthy.db", "", None, 0, "success"),
@@ -76,7 +79,7 @@ def test_preset_path_calls_and_result(client, fake_llm, pipe, case, reply, path,
     if result == "success":
         assert r["status"] == "success" and not r.get("healed") and not r.get("quarantined")
     elif result == "healed":
-        assert r.get("healed") is True and inc["status"] == "RESOLVED" and rows == 10
+        assert r.get("healed") is True and inc["status"] == "RESOLVED" and rows == 10 and held == 0
     elif result == "healed_with_quarantine":
         assert r.get("healed") is True and inc["status"] == "RESOLVED"
         assert rows == 9 and held == 1, "9 rows loaded, Yuki's row (no country) held back"
